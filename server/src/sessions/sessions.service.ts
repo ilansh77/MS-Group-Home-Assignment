@@ -9,6 +9,12 @@ import { GetSessionResponseDto } from './dto/get-session-response.dto';
 import { GameEngineService } from '../game/game-engine.service';
 import { RollSessionResponseDto } from './dto/roll-session-response.dto';
 
+export interface CreatedSessionResult {
+  sessionId: string;
+  credits: number;
+  status: GameSessionStatus.Active;
+}
+
 const INITIAL_CREDITS = 10;
 const DEFAULT_SESSION_TTL_SECONDS = 86_400;
 const MAX_SESSION_CREATION_ATTEMPTS = 3;
@@ -27,7 +33,7 @@ export class SessionsService {
     this.sessionTtlSeconds = this.readSessionTtl();
   }
 
-  async createSession(): Promise<CreateSessionResponseDto> {
+  async createSession(): Promise<CreatedSessionResult> {
     for (
       let attempt = 0;
       attempt < MAX_SESSION_CREATION_ATTEMPTS;
@@ -72,7 +78,6 @@ export class SessionsService {
   }
 
   return {
-    sessionId: session.id,
     credits: session.credits,
     status: session.status,
     createdAt: session.createdAt,
@@ -231,7 +236,6 @@ private async executeCashOut(
   switch (result.outcome) {
     case CashOutOutcome.CashedOut:
       return {
-        sessionId,
         cashedOutCredits:
           result.cashedOutCredits,
         status:
@@ -280,7 +284,6 @@ private async executeRoll(
   switch (commitResult.outcome) {
     case CommitRollOutcome.Committed:
       return {
-        sessionId,
         symbols: roll.symbols,
         won: roll.won,
         reward: roll.reward,

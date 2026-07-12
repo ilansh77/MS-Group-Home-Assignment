@@ -5,6 +5,7 @@ import { RedisSessionRepository } from './redis-session.repository';
 import { SessionRepository } from './session.repository';
 import { SessionsController } from './sessions.controller';
 import { SessionsService } from './sessions.service';
+import { SessionCookiePipe } from './pipes/session-cookie.pipe';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { SessionsService } from './sessions.service';
   providers: [
     SessionsService,
     RedisSessionRepository,
+    SessionCookiePipe,
     {
       provide: SessionRepository,
       useExisting: RedisSessionRepository,

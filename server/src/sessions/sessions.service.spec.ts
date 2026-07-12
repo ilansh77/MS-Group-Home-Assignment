@@ -87,7 +87,7 @@ const sessionRepositoryMock = {
       const result = await sessionsService.createSession();
 
       expect(result).toEqual({
-        sessionId: expect.any(String),
+        sessionId:expect.any(String),
         credits: 10,
         status: GameSessionStatus.Active,
       });
@@ -145,7 +145,6 @@ const sessionRepositoryMock = {
     await expect(
       sessionsService.cashOutSession(sessionId),
     ).resolves.toEqual({
-      sessionId,
       cashedOutCredits: 10,
       status: 'cashed-out',
     });
@@ -246,7 +245,6 @@ const sessionRepositoryMock = {
       await expect(
         sessionsService.getSession(sessionId),
       ).resolves.toEqual({
-        sessionId,
         credits: 10,
         status: GameSessionStatus.Active,
         createdAt: session.createdAt,
@@ -279,7 +277,6 @@ const sessionRepositoryMock = {
       await expect(
         sessionsService.getSession(sessionId),
       ).resolves.toEqual({
-        sessionId,
         credits: 0,
         status: GameSessionStatus.CashedOut,
         createdAt: session.createdAt,
@@ -341,7 +338,6 @@ const sessionRepositoryMock = {
       await expect(
         sessionsService.rollSession(sessionId),
       ).resolves.toEqual({
-        sessionId,
         symbols: [
           SlotSymbol.Cherry,
           SlotSymbol.Cherry,
