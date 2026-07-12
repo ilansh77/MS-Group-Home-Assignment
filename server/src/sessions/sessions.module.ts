@@ -1,18 +1,23 @@
 import { Module } from '@nestjs/common';
+import { GameModule } from '../game/game.module';
 import { RedisModule } from '../redis/redis.module';
-import { SessionRepository } from './session.repository';
 import { RedisSessionRepository } from './redis-session.repository';
+import { SessionRepository } from './session.repository';
 import { SessionsController } from './sessions.controller';
 import { SessionsService } from './sessions.service';
 
 @Module({
-  imports: [RedisModule],
+  imports: [
+    RedisModule,
+    GameModule,
+  ],
   controllers: [SessionsController],
   providers: [
     SessionsService,
+    RedisSessionRepository,
     {
       provide: SessionRepository,
-      useClass: RedisSessionRepository,
+      useExisting: RedisSessionRepository,
     },
   ],
 })
