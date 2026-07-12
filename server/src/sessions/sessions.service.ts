@@ -5,6 +5,7 @@ import { CreateSessionResponseDto } from './dto/create-session-response.dto';
 import { GameSessionStatus, type GameSession } from './game-session';
 import { CashOutSessionResponseDto } from './dto/cash-out-session-response.dto';
 import { CashOutOutcome, SessionRepository } from './session.repository';
+import { GetSessionResponseDto } from './dto/get-session-response.dto';
 
 const INITIAL_CREDITS = 10;
 const DEFAULT_SESSION_TTL_SECONDS = 86_400;
@@ -49,6 +50,32 @@ export class SessionsService {
       message: 'Unable to create a game session.',
     });
   }
+
+  async getSession(
+  sessionId: string,
+): Promise<GetSessionResponseDto> {
+  const session =
+    await this.sessionRepository.findById(sessionId);
+
+  if (!session) {
+    throw new NotFoundException({
+      statusCode: 404,
+      code: 'SESSION_NOT_FOUND',
+      message:
+        'The requested game session does not exist or has expired.',
+    });
+  }
+
+  return {
+    sessionId: session.id,
+    credits: session.credits,
+    status: session.status,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    cashedOutAt: session.cashedOutAt,
+    cashedOutCredits: session.cashedOutCredits,
+  };
+}
 
   async cashOutSession(
   sessionId: string,

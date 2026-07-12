@@ -24,6 +24,10 @@ export abstract class SessionRepository {
     ttlSeconds: number,
   ): Promise<boolean>;
 
+  abstract findById(
+    sessionId: string,
+  ): Promise<GameSession | null>;
+
   abstract cashOut(
     sessionId: string,
     cashedOutAt: string,

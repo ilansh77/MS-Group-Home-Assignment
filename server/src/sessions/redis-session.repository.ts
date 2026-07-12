@@ -77,6 +77,16 @@ export class RedisSessionRepository extends SessionRepository {
     return result === 'OK';
   }
 
+  async findById(
+  sessionId: string,
+): Promise<GameSession | null> {
+  const key = RedisSessionRepository.getKey(sessionId);
+
+  return this.redisService
+    .getClient()
+    .get<GameSession>(key);
+}
+
   async cashOut(
     sessionId: string,
     cashedOutAt: string,
