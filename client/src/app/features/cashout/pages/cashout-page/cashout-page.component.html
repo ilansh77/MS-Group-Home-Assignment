@@ -1,0 +1,20 @@
+    <main>
+      <h1>Cashed out</h1>
+
+      <p>
+        Final payout:
+        <strong>
+          {{
+            sessionStore
+              .session()
+              ?.cashedOutCredits ?? 0
+          }}
+        </strong>
+        credits
+      </p>
+
+      <a routerLink="/">
+        Start another game
+      </a>
+    </main>
+  

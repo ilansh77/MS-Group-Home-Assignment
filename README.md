@@ -1,28 +1,29 @@
 # Casino Jackpot
 
-A full-stack slot-machine application developed as part of a technical home assignment.
+A full-stack slot-machine application built as a technical home assignment.
 
-The server is implemented with NestJS and TypeScript. Game sessions are stored in a managed Upstash Redis database so multiple API instances can share the same state.
+The project contains:
 
-The Angular client has not yet been implemented.
+- A NestJS REST API that owns the game rules and session state.
+- An Angular 19.2 client built with standalone components, signals, RxJS, functional guards and interceptors, and `OnPush` change detection.
+- An Upstash Redis database shared by every API instance.
+
+The server is authoritative for symbols, wins, rewards, balances, rerolls, cash-out, and session status. The browser only displays the state returned by the API.
 
 ---
 
 ## Assignment Coverage
 
-The server currently supports the required game lifecycle:
+The application implements the required game lifecycle:
 
-* A new session starts with 10 credits.
-* Every roll costs 1 credit.
-* A winning roll requires three identical symbols.
-* Rewards are calculated and stored by the server.
-* The house reroll rules are applied according to the player's current balance.
-* Session state is stored on the server.
-* Cash-out closes the session and prevents duplicate payouts.
-* Multiple API instances coordinate through Redis.
-* Simultaneous mutations for the same session are rejected using a distributed lock.
-
-The server remains authoritative over all game outcomes, rewards, balances, and session state.
+- A new anonymous session starts with 10 credits.
+- Each roll costs 1 credit.
+- Three identical symbols produce a win.
+- Rewards and house reroll rules are calculated on the server.
+- Cash-out closes the session and records the remaining credits.
+- Session state survives across API instances through Redis.
+- Concurrent mutations of the same session are rejected with a distributed Redis lock.
+- The session identifier is kept in an `HttpOnly` cookie rather than Angular state, browser storage, or a route parameter.
 
 ---
 
@@ -30,107 +31,117 @@ The server remains authoritative over all game outcomes, rewards, balances, and 
 
 ### Server
 
-* NestJS
-* TypeScript
-* Jest
-* REST API
-
-### Infrastructure
-
-* Upstash Redis
-* Upstash TypeScript REST SDK
-* HTTPS-secured Redis communication
-* Environment-based configuration
-* Redis key expiration
+- NestJS
+- TypeScript
+- Jest
+- REST API
+- `cookie-parser`
 
 ### Client
 
-Not implemented yet.
+- Angular 19.2
+- Standalone components
+- Angular Router
+- Signals and computed signals
+- RxJS
+- Functional route guards
+- Functional HTTP interceptors
+- `ChangeDetectionStrategy.OnPush`
+- Environment-specific API configuration
+
+### Infrastructure
+
+- Upstash Redis
+- `@upstash/redis` REST SDK
+- Redis key expiration
+- Redis Lua scripts for atomic mutations
+- HTTPS-secured Redis communication
 
 ---
 
-## Design Process
+## Design Decisions
 
-### REST Instead of WebSockets
+### REST instead of WebSockets
 
-The application uses REST because every game action follows a request-response flow:
+The application follows a request-response flow: create a session, retrieve it, roll, and cash out. The server does not need to push unsolicited events to the browser, so REST keeps the implementation smaller and easier to test.
 
-1. Create a session.
-2. Retrieve a session.
-3. Roll.
-4. Cash out.
+Slot animation is a client-side presentation concern. It does not determine the result and does not extend the server mutation lock. WebSockets would be more appropriate for future features such as multiplayer games, shared jackpots, live leaderboards, or server-pushed events.
 
-The server does not need to push unsolicited events to the client.
+### Redis instead of process memory
 
-The slot animation is a client-side presentation concern and does not require a persistent WebSocket connection.
+Process memory would only be reliable with one NestJS instance. With multiple instances, a request could reach a different process from the one that originally created the session.
 
-WebSockets would become useful for features such as multiplayer games, live leaderboards, shared jackpots, or server-pushed events.
-
-### Redis Instead of Process Memory
-
-A local in-memory store would only work reliably with one NestJS instance.
-
-With multiple instances, each process would have separate memory, so a session created by one instance might not exist on another.
-
-Redis provides shared state:
+Redis provides shared, expiring state:
 
 ```text
-Client
-  |
-  v
-Load Balancer
-  |
-  +-- NestJS Instance A --+
-  |                       |
-  +-- NestJS Instance B --+--> Upstash Redis
+Browser
+   |
+   v
+Load balancer
+   |
+   +-- NestJS instance A --+
+   |                       |
+   +-- NestJS instance B --+--> Upstash Redis
 ```
 
-Redis was selected because sessions are:
+Redis fits this assignment because sessions are temporary, small, frequently updated, and shared between API instances.
 
-* Temporary
-* Small
-* Frequently updated
-* Shared between API instances
-* Suitable for automatic expiration
+### No relational database
 
-### No Relational Database
+The assignment does not require persistent user accounts, long-term balances, transaction history, or auditing. A relational database would become appropriate if those requirements were added later.
 
-The assignment does not define authentication, persistent user accounts, transaction history, or balances that survive between sessions.
+### Cookie-based session identification
 
-Redis is therefore sufficient for the current scope.
+The Redis session ID is a bearer credential. It is therefore not exposed through Angular route parameters, `localStorage`, `sessionStorage`, signals, or public API responses.
 
-A relational database such as PostgreSQL would be appropriate if persistent accounts, auditing, or financial history were later required.
+When a session is created, NestJS sends an opaque `casino_session` cookie configured with:
+
+- `HttpOnly`, so browser JavaScript cannot read it.
+- `SameSite=Lax`, reducing cross-site request risks.
+- `Secure` outside local HTTP development.
+- `Path=/api/sessions`, restricting where it is sent.
+- A maximum age aligned with the Redis session lifetime.
+
+The cookie identifies the session; Redis remains authoritative for credits, status, timestamps, version, and cash-out data.
+
+### Signals and RxJS on the client
+
+RxJS manages asynchronous HTTP flows, cancellation, errors, and finalization. Signals hold the latest synchronous state required by the UI, including credits, status, pending state, errors, and the last roll.
+
+After a browser refresh, the signal store is empty but the cookie remains. The route guard calls `GET /api/sessions/current`, and the returned server state rehydrates the store.
 
 ---
 
 ## Assumptions
 
-The implementation uses the following interpretations:
-
-* The cheating tier is based on the player's balance at the beginning of the roll.
-* A roll always costs 1 credit, including winning rolls.
-* Only one house reroll is allowed.
-* The second result is accepted even when it is another win.
-* Cash-out closes the anonymous session and returns its remaining credits.
-* No persistent user account is created.
-* Sessions expire after a configurable period.
-* Reading a session does not refresh its expiration.
-* The server lock lasts only while a mutation request is being processed.
-* The future client animation does not control server locking.
+- The house reroll tier is based on the balance at the beginning of the roll.
+- A roll costs 1 credit even when it wins.
+- Only one house reroll is allowed.
+- The second generated result is accepted, including another winning result.
+- Cash-out closes the anonymous session and records its remaining credits.
+- Reading a session does not refresh its expiration.
+- Sessions expire after a configurable period; the default is 24 hours.
+- A server mutation lock exists only while the request is being processed.
+- The client animation does not control server concurrency.
+- A valid client-side route guard improves navigation but is not an API security boundary.
 
 ---
 
-## Server Architecture
+# Server
 
-The server separates the game rules from Redis and HTTP concerns:
+## Architecture
 
 ```text
-Controller
+HTTP request
     |
     v
-SessionsService
+Cookie decorator + SessionCookiePipe
     |
-    +--> GameEngineService
+    v
+SessionsController
+    |
+    v
+SessionsService --------> GameEngineService
     |
     v
 SessionRepository
@@ -142,38 +153,25 @@ RedisSessionRepository
 Upstash Redis
 ```
 
-### Game Engine
+The HTTP layer extracts and validates the cookie. `SessionsService` remains independent of Express and receives the validated session ID as a normal method argument.
+
+### Game engine
 
 The game engine is responsible for:
 
-* Generating symbols
-* Detecting winning combinations
-* Calculating rewards
-* Deducting the roll cost
-* Applying the house reroll probabilities
+- Generating three symbols.
+- Detecting winning combinations.
+- Calculating rewards.
+- Deducting the roll cost.
+- Applying the balance-based house reroll probabilities.
 
-Randomness is accessed through an injectable `RandomSource`.
+Randomness is accessed through an injectable `RandomSource`. Production uses Node.js cryptographic randomness, while unit tests inject deterministic mocks.
 
-The production implementation uses Node.js cryptographic randomness. Tests use mocked randomness so game outcomes are deterministic.
+### Repository abstraction
 
-### Session Repository
+`SessionsService` depends on a `SessionRepository` abstraction rather than directly on Redis. `RedisSessionRepository` implements session creation, retrieval, atomic roll commits, cash-out, expiration, and mutation locking.
 
-The session service depends on a repository abstraction rather than directly depending on Redis.
-
-The Redis repository handles:
-
-* Session creation
-* Session retrieval
-* Atomic roll commits
-* Atomic cash-out
-* Mutation locks
-* Session expiration
-
----
-
-## Game Session
-
-A session contains data similar to:
+A stored session has the following shape:
 
 ```typescript
 enum GameSessionStatus {
@@ -193,103 +191,80 @@ interface GameSession {
 }
 ```
 
-Redis session keys use this format:
+Redis keys use these formats:
 
 ```text
 casino:session:<sessionId>
-```
-
-Mutation locks use:
-
-```text
 casino:session-mutation-lock:<sessionId>
 ```
 
-The default session TTL is 24 hours.
+## House rules
 
----
+- Below 40 credits: no house reroll.
+- From 40 through 60 credits: a winning result has a 30% chance of one reroll.
+- Above 60 credits: a winning result has a 60% chance of one reroll.
+- The second result is always accepted.
 
-## Concurrency and Locking
+The public roll response does not reveal whether the house rerolled.
 
-All session mutations use a shared Redis lock.
+## Concurrency and atomicity
 
-The same lock is used for:
+Roll and cash-out use the same per-session distributed lock. This prevents roll-versus-roll, roll-versus-cash-out, and cash-out-versus-cash-out overlap while allowing different sessions to proceed independently.
 
-* Roll versus roll
-* Roll versus cash-out
-* Cash-out versus cash-out
+Lock flow:
 
-### Lock Flow
+1. Generate a unique request token.
+2. create the Redis lock with `SET ... NX PX`.
+3. Return `409 SESSION_OPERATION_IN_PROGRESS` when the lock already exists.
+4. Perform the mutation after acquiring the lock.
+5. Release the lock in `finally`.
+6. Delete it only when the stored token still matches the request token.
 
-1. Generate a unique lock token.
-2. Attempt to create the Redis lock with `NX`.
-3. Add an expiration with `PX`.
-4. Reject the request with `409 Conflict` when the lock already exists.
-5. Process the mutation when the lock is acquired.
-6. Release the lock in a `finally` block.
-7. Delete the lock only when its stored token matches the current request's token.
+The expiration prevents a crashed API instance from leaving a permanent lock. Token-safe release prevents an expired lock owner from deleting a newer request's lock.
 
-Because the lock is stored in Redis, it works across multiple NestJS instances.
+Session versions are retained as defense in depth. If a lock expires before an unusually slow request completes, the Redis commit rejects the stale expected version rather than overwriting newer state. Version conflicts are not automatically retried.
 
-Different sessions use different lock keys and do not block one another.
+Roll commits and cash-out are performed with Redis Lua scripts so validation and mutation happen atomically. The scripts preserve the remaining session TTL. A separate Lua script safely releases a mutation lock by token.
 
-### Why Session Versions Are Also Kept
+## Session cookie flow
 
-The distributed lock coordinates requests, while the version protects against stale writes.
+```text
+POST /api/sessions
+    |
+    v
+NestJS creates Redis session
+    |
+    v
+Set-Cookie: casino_session=<opaque UUID>
+    |
+    v
+Browser stores HttpOnly cookie
+    |
+    v
+Later /api/sessions/current requests include the cookie
+    |
+    v
+cookie-parser -> @Cookie decorator -> SessionCookiePipe
+    |
+    v
+Controller passes validated session ID to SessionsService
+```
 
-The version remains useful when:
-
-* A lock expires before a slow request finishes.
-* Another code path modifies the session.
-* A deployment contains different application versions.
-* A mutation accidentally bypasses the lock.
-
-Roll commits only succeed when the stored version matches the expected version.
-
-Automatic retries are not performed. A version conflict is returned as an error because the request was already processed under a session lock.
-
----
-
-## Redis Atomic Operations
-
-Roll commits and cash-out use Redis Lua scripts.
-
-The scripts validate and update the session as one atomic Redis operation.
-
-This prevents another request from changing the session between validation and persistence.
-
-The roll script validates:
-
-* The session exists.
-* The session is active.
-* Credits are available.
-* The version matches.
-* The new balance is valid.
-
-The cash-out script:
-
-* Confirms that the session exists and is active.
-* Records the payout.
-* Sets the active balance to zero.
-* Closes the session.
-* Increments the version.
-* Preserves the remaining TTL.
-
-A separate script safely releases mutation locks using the unique lock token.
-
----
-
-## API Routes
+## API routes
 
 The API uses `/api` as its global prefix.
 
-### Health Check
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/alive` | Verify API and Redis availability |
+| `POST` | `/api/sessions` | Create a session and set its cookie |
+| `GET` | `/api/sessions/current` | Retrieve the cookie-identified session |
+| `POST` | `/api/sessions/current/roll` | Perform a roll |
+| `POST` | `/api/sessions/current/cash-out` | Cash out and close the session |
 
-```http
-GET /api/alive
-```
+The session ID is neither accepted as a route parameter nor returned in public response bodies.
 
-Returns:
+### Health response
 
 ```typescript
 interface AliveResponse {
@@ -299,8 +274,6 @@ interface AliveResponse {
 }
 ```
 
-Example:
-
 ```json
 {
   "status": "ok",
@@ -309,51 +282,30 @@ Example:
 }
 ```
 
-The application also checks Redis during startup and does not begin listening when Redis is unavailable.
+NestJS checks Redis during startup and does not begin listening when Redis is unavailable.
 
----
-
-### Create Session
-
-```http
-POST /api/sessions
-```
-
-Returns:
+### Create-session response
 
 ```typescript
 interface CreateSessionResponse {
-  sessionId: string;
   credits: number;
-  status: GameSessionStatus.Active;
+  status: 'active';
 }
 ```
 
-Example:
-
 ```json
 {
-  "sessionId": "7ed1903b-4839-4323-b673-11ebf984ea2d",
   "credits": 10,
   "status": "active"
 }
 ```
 
----
-
-### Get Session
-
-```http
-GET /api/sessions/:sessionId
-```
-
-Returns:
+### Current-session response
 
 ```typescript
 interface GetSessionResponse {
-  sessionId: string;
   credits: number;
-  status: GameSessionStatus;
+  status: 'active' | 'cashed-out';
   createdAt: string;
   updatedAt: string;
   cashedOutAt?: string;
@@ -361,31 +313,23 @@ interface GetSessionResponse {
 }
 ```
 
----
-
-### Roll
-
-```http
-POST /api/sessions/:sessionId/roll
-```
-
-Returns:
+### Roll response
 
 ```typescript
+type SlotSymbol = 'C' | 'L' | 'O' | 'W';
+
+type SlotSymbols = [SlotSymbol, SlotSymbol, SlotSymbol];
+
 interface RollSessionResponse {
-  sessionId: string;
-  symbols: [SlotSymbol, SlotSymbol, SlotSymbol];
+  symbols: SlotSymbols;
   won: boolean;
   reward: number;
   credits: number;
 }
 ```
 
-Example:
-
 ```json
 {
-  "sessionId": "7ed1903b-4839-4323-b673-11ebf984ea2d",
   "symbols": ["C", "L", "O"],
   "won": false,
   "reward": 0,
@@ -393,85 +337,126 @@ Example:
 }
 ```
 
-The response does not reveal whether the house performed a reroll.
-
----
-
-### Cash Out
-
-```http
-POST /api/sessions/:sessionId/cash-out
-```
-
-Returns:
+### Cash-out response
 
 ```typescript
 interface CashOutSessionResponse {
-  sessionId: string;
   cashedOutCredits: number;
-  status: GameSessionStatus.CashedOut;
+  status: 'cashed-out';
 }
 ```
 
-Example:
-
 ```json
 {
-  "sessionId": "7ed1903b-4839-4323-b673-11ebf984ea2d",
   "cashedOutCredits": 19,
   "status": "cashed-out"
 }
 ```
 
----
+## Common API errors
 
-## Route Map
-
-| Method | Route                               | Purpose                          |
-| ------ | ----------------------------------- | -------------------------------- |
-| `GET`  | `/api/alive`                        | Check API and Redis availability |
-| `POST` | `/api/sessions`                     | Create a game session            |
-| `GET`  | `/api/sessions/:sessionId`          | Retrieve a session               |
-| `POST` | `/api/sessions/:sessionId/roll`     | Perform a roll                   |
-| `POST` | `/api/sessions/:sessionId/cash-out` | Cash out and close a session     |
-
----
-
-## House Rules
-
-The server applies the assignment rules as follows:
-
-* Below 40 credits: no house reroll.
-* Between 40 and 60 credits: a winning result has a 30% chance of being rerolled.
-* Above 60 credits: a winning result has a 60% chance of being rerolled.
-* Only one additional roll is allowed.
-* The second result is always accepted.
+| Status | Code | Meaning |
+|---:|---|---|
+| `401` | `SESSION_COOKIE_MISSING` | No game-session cookie was supplied |
+| `401` | `INVALID_SESSION_COOKIE` | The cookie is not a valid session UUID |
+| `404` | `SESSION_NOT_FOUND` | The Redis session is missing or expired |
+| `409` | `SESSION_OPERATION_IN_PROGRESS` | Another mutation currently owns the lock |
+| `409` | `SESSION_ALREADY_CASHED_OUT` | The session is already closed |
+| `409` | `SESSION_STATE_CONFLICT` | The stored version changed unexpectedly |
+| `422` | `INSUFFICIENT_CREDITS` | The session cannot afford another roll |
+| `503` | `SESSION_CREATION_FAILED` | A session could not be created |
 
 ---
 
-## Error Responses
+# Client
 
-Common responses include:
+## Architecture
 
-| Status | Code                            | Meaning                             |
-| -----: | ------------------------------- | ----------------------------------- |
-|  `400` | Nest validation error           | Invalid UUID or request             |
-|  `404` | `SESSION_NOT_FOUND`             | Session is missing or expired       |
-|  `409` | `SESSION_OPERATION_IN_PROGRESS` | Another mutation owns the lock      |
-|  `409` | `SESSION_ALREADY_CASHED_OUT`    | Session is already closed           |
-|  `409` | `SESSION_STATE_CONFLICT`        | Stored version changed unexpectedly |
-|  `422` | `INSUFFICIENT_CREDITS`          | Session cannot afford another roll  |
-|  `503` | `SESSION_CREATION_FAILED`       | Session could not be created        |
-
-Example:
-
-```json
-{
-  "statusCode": 409,
-  "code": "SESSION_OPERATION_IN_PROGRESS",
-  "message": "Another operation is already in progress for this session."
-}
+```text
+Standalone page component
+    |
+    v
+SessionStoreService
+    |
+    v
+SessionsApiService
+    |
+    v
+ApiClientService
+    |
+    v
+Credentials interceptor
+    |
+    v
+NestJS API
 ```
+
+The generic API client provides typed `GET` and `POST` methods. `SessionsApiService` maps those methods to the session endpoints. The credentials interceptor applies `withCredentials: true` globally; it does not read or create the `HttpOnly` cookie. The browser stores the cookie from NestJS's `Set-Cookie` header and attaches it to matching requests.
+
+The client calls the API host configured for the selected Angular environment. In local development, Angular runs on port 4200 and calls NestJS directly on port 3000, so NestJS enables credentialed CORS for the configured `CLIENT_ORIGIN`.
+
+## Client routes
+
+| Route | Screen | Access behavior |
+|---|---|---|
+| `/` | Welcome | Starts a new session |
+| `/game` | Game | Requires an active session |
+| `/cashout` | Cash-out | Requires a cashed-out session |
+| `/not-found` | Not found | Generic 404 screen |
+| `**` | Wildcard | Redirects to `/not-found` |
+
+The functional session-status guard loads `/sessions/current` when necessary, hydrates the signal store, and returns a `UrlTree` to `/` when the cookie or session state is invalid.
+
+## Lazy-loaded screens
+
+Lazy loading is implemented in `app.routes.ts` with `loadComponent()` and dynamic imports. Each standalone page is compiled into a separate route chunk and loaded when its route is visited instead of being included eagerly in the initial application bundle.
+
+```typescript
+export const routes: Routes = [
+  {
+    path: '',
+    pathMatch: 'full',
+    loadComponent: () =>
+      import('./features/welcome/pages/welcome-page/welcome-page.component')
+        .then((module) => module.WelcomePageComponent),
+  },
+  {
+    path: 'game',
+    canActivate: [sessionStatusGuard],
+    loadComponent: () =>
+      import('./features/game/pages/game-page/game-page.component')
+        .then((module) => module.GamePageComponent),
+  },
+  {
+    path: 'cashout',
+    canActivate: [sessionStatusGuard],
+    loadComponent: () =>
+      import('./features/cashout/pages/cashout-page/cashout-page.component')
+        .then((module) => module.CashoutPageComponent),
+  },
+  {
+    path: 'not-found',
+    loadComponent: () =>
+      import('./features/not-found/pages/not-found-page/not-found-page.component')
+        .then((module) => module.NotFoundPageComponent),
+  },
+  {
+    path: '**',
+    redirectTo: 'not-found',
+  },
+];
+```
+
+A resolver is not used because the guard already needs the current session to decide whether navigation is allowed. Loading the same resource in both a guard and resolver would duplicate work and create two sources for the same initial state.
+
+## Client state flow
+
+- `SessionsApiService` returns cold HTTP Observables.
+- The signal store updates `pending` before a request and clears it with `finalize()`.
+- Successful responses update the session, credits, last roll, or cash-out state.
+- Components render readonly and computed signals under `OnPush` change detection.
+- Explicit component subscriptions use `takeUntilDestroyed()`.
+- A refresh clears in-memory signals, after which the route guard reloads the server session using the browser-managed cookie.
 
 ---
 
@@ -481,73 +466,90 @@ Example:
 
 Install:
 
-* Git
-* Node.js 20 or newer
-* npm
-* An Upstash account and Redis database
+- Git
+- Node.js 22.x, which includes npm
 
-NestJS and Angular do not need to be installed globally.
+Check the installed versions:
 
-The current client is not yet implemented, so Angular installation is not required for the server setup.
+```powershell
+node --version
+npm --version
+```
 
-## Clone the Repository
+The expected Node output begins with `v22`.
+
+Angular CLI and NestJS CLI do not need to be installed globally because `npm install` installs the versions declared by each project and npm scripts use those local binaries.
+
+Optional global installations:
+
+```powershell
+npm install --global @angular/cli@19.2
+npm install --global @nestjs/cli
+```
+
+Verify them only when installed globally:
+
+```powershell
+ng version
+nest --version
+```
+
+## Clone the repository
 
 ```powershell
 git clone YOUR_REPOSITORY_URL
 cd MS-Group-Home-Assignment
 ```
 
-## Install Server Dependencies
+## Configure and run the server
+
+Install dependencies:
 
 ```powershell
 cd server
 npm install
 ```
 
-The project uses local package dependencies and npm scripts. A global NestJS CLI installation is not required.
-
-## Create the Environment File
-
-Create the file inside the `server` directory:
+The real server environment file is supplied separately. Paste it at exactly:
 
 ```text
-MS-Group-Home-Assignment/
-└── server/
-    ├── .env
-    ├── .env.example
-    └── package.json
+MS-Group-Home-Assignment/server/.env
 ```
 
-PowerShell:
+The result should resemble:
 
-```powershell
-New-Item .env
+```text
+server/
+├── .env
+├── .env.example
+├── package.json
+└── src/
 ```
 
-Add:
+On Windows, make sure the file is named `.env`, not `.env.txt`.
+
+The supplied file contains values equivalent to:
 
 ```env
+NODE_ENV=development
 PORT=3000
+CLIENT_ORIGIN=http://localhost:4200
 
-UPSTASH_REDIS_REST_URL=https://your-database.upstash.io
-UPSTASH_REDIS_REST_TOKEN=your-token
+UPSTASH_REDIS_REST_URL=https://example.upstash.io
+UPSTASH_REDIS_REST_TOKEN=example-token
 
 SESSION_TTL_SECONDS=86400
 ```
 
-Use the REST URL and regular token shown in the Upstash console.
+The supplied Upstash credentials belong to the assignment database. The real `.env` file is ignored by Git and must not be committed.
 
-Do not use the read-only token because the application must update sessions.
-
-The real `.env` file is ignored by Git.
-
-## Start the Server
+Start NestJS:
 
 ```powershell
 npm run start:dev
 ```
 
-The server should start at:
+The API is available at:
 
 ```text
 http://localhost:3000/api
@@ -559,121 +561,138 @@ Verify it:
 curl.exe http://localhost:3000/api/alive
 ```
 
-## Run Tests
+Keep this terminal running.
+
+## Configure and run the client
+
+Open a second terminal from the repository root:
 
 ```powershell
-npm test
+cd client
+npm install
 ```
 
-Additional checks:
+The local Angular environment should point directly to NestJS:
+
+```typescript
+// client/src/environments/environment.development.ts
+export const environment = {
+  production: false,
+  apiBaseUrl: 'http://localhost:3000/api',
+};
+```
+
+No Angular development proxy is required. The browser contacts NestJS directly, and the server allows the Angular origin through credentialed CORS.
+
+Start Angular with the development environment:
 
 ```powershell
-npm run format
+npm run dev
+```
+
+The client is available at:
+
+```text
+http://localhost:4200
+```
+
+The expected local setup is:
+
+```text
+Terminal 1: server/ -> npm run start:dev -> http://localhost:3000
+Terminal 2: client/ -> npm run dev       -> http://localhost:4200
+```
+
+Open `http://localhost:4200` in a browser.
+
+## Angular environments
+
+The client uses build configurations for development, QA, and production. API hosts are configured in:
+
+```text
+client/src/environments/environment.development.ts
+client/src/environments/environment.qa.ts
+client/src/environments/environment.production.ts
+```
+
+Development targets `http://localhost:3000/api`. QA and production may contain deployment-specific placeholders until those environments are provisioned.
+
+Typical commands:
+
+```powershell
+npm run dev       # development configuration
+npm start         # QA configuration, when configured
+npm run build     # production build
+npm run build:qa  # QA build
+```
+
+## Manual cookie testing
+
+The server can be tested without Angular by using a curl cookie jar.
+
+```powershell
+$cookieJar = ".\casino-cookies.txt"
+
+curl.exe `
+  --cookie-jar $cookieJar `
+  --request POST `
+  http://localhost:3000/api/sessions
+
+curl.exe `
+  --cookie $cookieJar `
+  http://localhost:3000/api/sessions/current
+
+curl.exe `
+  --cookie $cookieJar `
+  --request POST `
+  http://localhost:3000/api/sessions/current/roll
+
+curl.exe `
+  --cookie $cookieJar `
+  --request POST `
+  http://localhost:3000/api/sessions/current/cash-out
+```
+
+---
+
+# Tests and Validation
+
+## Server
+
+Server unit tests mock Redis and randomness, keeping them deterministic and independent of network availability. Coverage includes health checks, session creation and retrieval, game rules, balance boundaries, cash-out behavior, mutation locks, version conflicts, cookie validation, cookie options, and controller-to-service session forwarding.
+
+Run:
+
+```powershell
+cd server
+npm test
 npm run lint
+npm run build
+```
+
+## Client
+
+Run the Angular test and production build commands from `client/`:
+
+```powershell
+cd client
+npm test
 npm run build
 ```
 
 ---
 
-## Manual Testing Scripts
+# Development Process
 
-PowerShell scripts are available in:
+The implementation evolved through these decisions:
 
-```text
-server/scripts/
-```
-
-Run them from the repository root:
-
-```powershell
-& .\server\scripts\api-smoke-test.ps1
-```
-
-Or from inside `server`:
-
-```powershell
-& .\scripts\api-smoke-test.ps1
-```
-
-The scripts support:
-
-* Health verification
-* Session creation
-* Session retrieval
-* Rolls
-* Cash-out
-* Duplicate cash-out validation
-
-Some scripts contain:
-
-```powershell
-$SessionId = "ID_TO_REPLACE"
-```
-
-Replace it with a real session ID before running the script.
-
----
-
-# Testing Approach
-
-Unit tests do not connect to the real Upstash database.
-
-Redis and randomness are mocked so tests remain:
-
-* Fast
-* Deterministic
-* Independent of network availability
-* Safe for CI environments
-
-Current tests cover:
-
-* Health responses
-* Session creation
-* Session retrieval
-* Cash-out behavior
-* Duplicate cash-out protection
-* Roll outcomes
-* Reward calculations
-* House reroll boundaries
-* Version conflicts
-* Mutation-lock behavior
-
-Redis integration tests can be added separately using a dedicated test database.
-
----
-
-# Development Journey
-
-## Repository and Server Setup
-
-* Created and published the Git repository.
-* Added the NestJS server.
-* Configured environment loading.
-* Added a Redis-aware health route.
-* Configured startup to fail when Redis is unavailable.
-
-## Session Storage
-
-* Evaluated process-memory storage.
-* Selected Redis for shared, expiring session state.
-* Added secure UUID session identifiers.
-* Added session creation and retrieval routes.
-
-## Game Engine
-
-* Separated game rules from infrastructure.
-* Added typed symbols and rewards.
-* Added injectable randomness.
-* Implemented the house reroll rules.
-* Added deterministic unit tests.
-
-## Safe Mutations
-
-* Added atomic Redis scripts for roll commits and cash-out.
-* Added session versioning.
-* Added a shared distributed mutation lock.
-* Used the same lock for roll and cash-out.
-* Added token-safe lock release.
-* Removed automatic roll retries.
-
----
+1. Created the NestJS API and Redis-aware health check.
+2. Replaced process-memory sessions with expiring Upstash Redis records.
+3. Separated game rules behind an injectable game engine and deterministic random-source tests.
+4. Added atomic Redis scripts for roll commits and cash-out.
+5. Added optimistic session versions as stale-write protection.
+6. Added a shared per-session distributed lock and token-safe release.
+7. Replaced public session IDs with an opaque `HttpOnly` cookie.
+8. Added cookie parsing, validation, and credentialed CORS.
+9. Added the Angular 19.2 application with standalone lazy-loaded screens.
+10. Added typed API services, a global credentials interceptor, an RxJS-backed signal store, and functional session guards.

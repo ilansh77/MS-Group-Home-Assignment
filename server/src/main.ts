@@ -7,23 +7,30 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  app.use(cookieParser());
-
-  app.enableShutdownHooks();
-  app.setGlobalPrefix('api');
-
   const configuredPort =
-    configService.get<string>('PORT');
+    configService.get<string>('PORT') ?? '3000';
 
-  const port = configuredPort
-    ? Number(configuredPort)
-    : 3000;
+  const port = Number(configuredPort);
 
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error(
       `Invalid PORT configuration: ${configuredPort}`,
     );
   }
+
+  const clientOrigin =
+    configService.get<string>('CLIENT_ORIGIN') ??
+    'http://localhost:4200';
+
+  app.use(cookieParser());
+
+  app.enableCors({
+    origin: clientOrigin,
+    credentials: true,
+  });
+
+  app.enableShutdownHooks();
+  app.setGlobalPrefix('api');
 
   await app.listen(port);
 

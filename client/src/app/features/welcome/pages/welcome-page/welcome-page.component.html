@@ -1,0 +1,26 @@
+<main>
+  <h1>Casino Jackpot</h1>
+
+  <p>
+    Start with 10 credits and test
+    your luck.
+  </p>
+
+  <button
+    type="button"
+    [disabled]="sessionStore.pending()"
+    (click)="startGame()"
+  >
+    @if (sessionStore.pending()) {
+      Starting…
+    } @else {
+      Start game
+    }
+  </button>
+
+  @if (sessionStore.error(); as error) {
+    <p role="alert">
+      {{ error }}
+    </p>
+  }
+</main>

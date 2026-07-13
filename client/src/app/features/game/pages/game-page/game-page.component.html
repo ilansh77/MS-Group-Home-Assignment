@@ -1,0 +1,52 @@
+<main>
+  <h1>Casino Jackpot</h1>
+
+  <p>
+    Current credits:
+    <strong>
+      {{ sessionStore.credits() }}
+    </strong>
+  </p>
+
+  <section aria-label="Slot machine">
+    @if (
+      sessionStore.lastRoll();
+      as roll
+    ) {
+      @for (
+        symbol of roll.symbols;
+        track $index
+      ) {
+        <span>
+          {{ symbol }}
+        </span>
+      }
+    } @else {
+      <span>?</span>
+      <span>?</span>
+      <span>?</span>
+    }
+  </section>
+
+  <button
+    type="button"
+    [disabled]="!sessionStore.canRoll()"
+    (click)="roll()"
+  >
+    Roll
+  </button>
+
+  <button
+    type="button"
+    [disabled]="sessionStore.pending()"
+    (click)="cashOut()"
+  >
+    Cash out
+  </button>
+
+  @if (sessionStore.error(); as error) {
+    <p role="alert">
+      {{ error }}
+    </p>
+  }
+</main>
