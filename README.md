@@ -24,8 +24,9 @@ The application implements the required game lifecycle:
 - Session state survives across API instances through Redis.
 - Concurrent mutations of the same session are rejected with a distributed Redis lock.
 - The session identifier is kept in an `HttpOnly` cookie rather than Angular state, browser storage, or a route parameter.
-
----
+- The current-session probe returns `204 No Content` when no browser session exists or when its Redis record has expired.
+- A dedicated `DELETE` endpoint clears the browser-managed session cookie before starting a new game.
+- The Angular client restores server state after refresh, canonicalizes routes, animates the reels, and displays wins in a modal without influencing game results.
 
 ## Technology Stack
 
@@ -41,12 +42,13 @@ The application implements the required game lifecycle:
 
 - Angular 19.2
 - Standalone components
-- Angular Router
+- Angular Router with lazy-loaded route components
 - Signals and computed signals
 - RxJS
 - Functional route guards
 - Functional HTTP interceptors
 - `ChangeDetectionStrategy.OnPush`
+- Sass variables, mixins, and component-scoped styles
 - Environment-specific API configuration
 
 ### Infrastructure
@@ -98,19 +100,30 @@ When a session is created, NestJS sends an opaque `casino_session` cookie config
 
 - `HttpOnly`, so browser JavaScript cannot read it.
 - `SameSite=Lax`, reducing cross-site request risks.
-- `Secure` outside local HTTP development.
+- `Secure` in production.
 - `Path=/api/sessions`, restricting where it is sent.
 - A maximum age aligned with the Redis session lifetime.
+
+The browser stores the cookie and attaches it to matching API requests when Angular sends requests with `withCredentials: true`. The Angular interceptor never reads, creates, or mutates the cookie.
+
+Cookie handling differs by endpoint:
+
+- `GET /api/sessions/current` uses the optional mode of the shared `SessionCookiePipe`.
+- A missing cookie returns `204 No Content` without querying Redis.
+- A well-formed cookie whose Redis session has expired is cleared and also returns `204 No Content`.
+- A malformed cookie remains an authentication error and returns `401 INVALID_SESSION_COOKIE`.
+- Roll and cash-out use the required mode of the same pipe, so a missing cookie returns `401 SESSION_COOKIE_MISSING`.
+- `DELETE /api/sessions/current` clears the cookie with the same name and path used when it was created, but without a new lifetime.
 
 The cookie identifies the session; Redis remains authoritative for credits, status, timestamps, version, and cash-out data.
 
 ### Signals and RxJS on the client
 
-RxJS manages asynchronous HTTP flows, cancellation, errors, and finalization. Signals hold the latest synchronous state required by the UI, including credits, status, pending state, errors, and the last roll.
+RxJS manages asynchronous HTTP flows, errors, sequencing, and finalization. Signals hold the latest synchronous state required by the UI, including the current session, credits, pending state, errors, and the last roll.
 
-After a browser refresh, the signal store is empty but the cookie remains. The route guard calls `GET /api/sessions/current`, and the returned server state rehydrates the store.
+After a browser refresh, the signal store is empty but the cookie remains. The functional route guard calls `GET /api/sessions/current` and rehydrates the store when the server returns a session. A `204` response maps to `null` and is treated as the normal no-session state rather than an HTTP error.
 
----
+The client uses one parameterized session-route guard for the welcome, game, and cash-out routes. It validates the server state and redirects to the canonical route for the returned session status.
 
 ## Assumptions
 
@@ -124,6 +137,9 @@ After a browser refresh, the signal store is empty but the cookie remains. The r
 - A server mutation lock exists only while the request is being processed.
 - The client animation does not control server concurrency.
 - A valid client-side route guard improves navigation but is not an API security boundary.
+- A missing current-session cookie is a normal anonymous state and returns `204 No Content`.
+- Clearing the cookie starts a new browser session context; Redis data still follows its normal expiration lifecycle.
+- Reel animation and the win modal are presentation-only and never generate or alter game results.
 
 ---
 
@@ -232,23 +248,46 @@ Roll commits and cash-out are performed with Redis Lua scripts so validation and
 POST /api/sessions
     |
     v
-NestJS creates Redis session
+NestJS creates the Redis session
     |
     v
 Set-Cookie: casino_session=<opaque UUID>
     |
     v
-Browser stores HttpOnly cookie
+Browser stores the HttpOnly cookie
     |
     v
-Later /api/sessions/current requests include the cookie
+Angular requests use withCredentials: true
     |
     v
 cookie-parser -> @Cookie decorator -> SessionCookiePipe
     |
-    v
-Controller passes validated session ID to SessionsService
+    +-- optional mode for GET /sessions/current
+    |      missing cookie -> 204
+    |      expired session -> clear stale cookie -> 204
+    |      existing session -> 200 with public state
+    |
+    +-- required mode for roll and cash-out
+           missing or malformed cookie -> 401
 ```
+
+Starting a new game after cash-out uses:
+
+```text
+DELETE /api/sessions/current
+    |
+    v
+NestJS sends an expired Set-Cookie header
+with the same cookie name and path
+    |
+    v
+Browser removes casino_session
+    |
+    v
+Angular clears its signal store and navigates to /
+```
+
+Because the cookie is `HttpOnly`, Angular never clears it directly. The client calls the API and lets the browser process the server's `Set-Cookie` response.
 
 ## API routes
 
@@ -258,9 +297,10 @@ The API uses `/api` as its global prefix.
 |---|---|---|
 | `GET` | `/api/alive` | Verify API and Redis availability |
 | `POST` | `/api/sessions` | Create a session and set its cookie |
-| `GET` | `/api/sessions/current` | Retrieve the cookie-identified session |
+| `GET` | `/api/sessions/current` | Retrieve the cookie-identified session, or return `204` when absent or expired |
 | `POST` | `/api/sessions/current/roll` | Perform a roll |
 | `POST` | `/api/sessions/current/cash-out` | Cash out and close the session |
+| `DELETE` | `/api/sessions/current` | Clear the browser session cookie |
 
 The session ID is neither accepted as a route parameter nor returned in public response bodies.
 
@@ -302,6 +342,8 @@ interface CreateSessionResponse {
 
 ### Current-session response
 
+An existing session returns `200 OK` with:
+
 ```typescript
 interface GetSessionResponse {
   credits: number;
@@ -312,6 +354,8 @@ interface GetSessionResponse {
   cashedOutCredits?: number;
 }
 ```
+
+A missing cookie or expired Redis session returns `204 No Content`. An expired session cookie is cleared before the response is completed.
 
 ### Roll response
 
@@ -353,20 +397,24 @@ interface CashOutSessionResponse {
 }
 ```
 
+### Clear-session response
+
+`DELETE /api/sessions/current` returns `204 No Content`. The response clears `casino_session` by using the same cookie name and path as session creation, without assigning a new maximum age.
+
 ## Common API errors
 
 | Status | Code | Meaning |
 |---:|---|---|
-| `401` | `SESSION_COOKIE_MISSING` | No game-session cookie was supplied |
+| `401` | `SESSION_COOKIE_MISSING` | A required mutation endpoint did not receive the game-session cookie |
 | `401` | `INVALID_SESSION_COOKIE` | The cookie is not a valid session UUID |
-| `404` | `SESSION_NOT_FOUND` | The Redis session is missing or expired |
+| `404` | `SESSION_NOT_FOUND` | A required operation referenced a Redis session that is missing or expired |
 | `409` | `SESSION_OPERATION_IN_PROGRESS` | Another mutation currently owns the lock |
 | `409` | `SESSION_ALREADY_CASHED_OUT` | The session is already closed |
 | `409` | `SESSION_STATE_CONFLICT` | The stored version changed unexpectedly |
 | `422` | `INSUFFICIENT_CREDITS` | The session cannot afford another roll |
 | `503` | `SESSION_CREATION_FAILED` | A session could not be created |
 
----
+`GET /api/sessions/current` intentionally translates the absence of a usable session into `204 No Content`. Other server, Redis, or network failures remain errors and are not converted into an anonymous state.
 
 # Client
 
@@ -391,58 +439,70 @@ Credentials interceptor
 NestJS API
 ```
 
-The generic API client provides typed `GET` and `POST` methods. `SessionsApiService` maps those methods to the session endpoints. The credentials interceptor applies `withCredentials: true` globally; it does not read or create the `HttpOnly` cookie. The browser stores the cookie from NestJS's `Set-Cookie` header and attaches it to matching requests.
+`ApiClientService` provides typed `GET`, `POST`, and `DELETE` methods. `SessionsApiService` maps those generic methods to the session endpoints.
+
+The functional credentials interceptor applies `withCredentials: true` globally. It does not read or create the `HttpOnly` cookie. The browser stores the cookie from NestJS's `Set-Cookie` header and attaches it to matching requests.
 
 The client calls the API host configured for the selected Angular environment. In local development, Angular runs on port 4200 and calls NestJS directly on port 3000, so NestJS enables credentialed CORS for the configured `CLIENT_ORIGIN`.
 
 ## Client routes
 
-| Route | Screen | Access behavior |
+| Route | Screen | Canonical behavior |
 |---|---|---|
-| `/` | Welcome | Starts a new session |
+| `/` | Welcome | Allowed without a session; active sessions redirect to `/game`, and cashed-out sessions redirect to `/cashout` |
 | `/game` | Game | Requires an active session |
 | `/cashout` | Cash-out | Requires a cashed-out session |
-| `/not-found` | Not found | Generic 404 screen |
-| `**` | Wildcard | Redirects to `/not-found` |
+| `**` | Wildcard | Redirects to `/`, after which the session guard selects the canonical route |
 
-The functional session-status guard loads `/sessions/current` when necessary, hydrates the signal store, and returns a `UrlTree` to `/` when the cookie or session state is invalid.
+A single functional `sessionRouteGuard` is parameterized through route data. It requests the current server session before navigation:
+
+- No session allows `/` and redirects protected routes to `/`.
+- An active session allows `/game` and redirects other application routes to `/game`.
+- A cashed-out session allows `/cashout` and redirects other application routes to `/cashout`.
+- Unexpected API or network failures do not masquerade as a valid session.
+
+The guard improves navigation and state restoration, but the NestJS API still enforces every session requirement.
 
 ## Lazy-loaded screens
 
-Lazy loading is implemented in `app.routes.ts` with `loadComponent()` and dynamic imports. Each standalone page is compiled into a separate route chunk and loaded when its route is visited instead of being included eagerly in the initial application bundle.
+Lazy loading is implemented in `app.routes.ts` with `loadComponent()` and dynamic imports. Each standalone page is compiled into a separate route chunk and loaded only when its route is activated.
 
 ```typescript
 export const routes: Routes = [
   {
     path: '',
     pathMatch: 'full',
+    canActivate: [sessionRouteGuard],
+    data: {
+      [SESSION_ROUTE_MODE]: WELCOME_ROUTE_MODE,
+    },
     loadComponent: () =>
       import('./features/welcome/pages/welcome-page/welcome-page.component')
-        .then((module) => module.WelcomePageComponent),
+        .then(({ WelcomePageComponent }) => WelcomePageComponent),
   },
   {
     path: 'game',
-    canActivate: [sessionStatusGuard],
+    canActivate: [sessionRouteGuard],
+    data: {
+      [SESSION_ROUTE_MODE]: GameSessionStatus.Active,
+    },
     loadComponent: () =>
       import('./features/game/pages/game-page/game-page.component')
-        .then((module) => module.GamePageComponent),
+        .then(({ GamePageComponent }) => GamePageComponent),
   },
   {
     path: 'cashout',
-    canActivate: [sessionStatusGuard],
+    canActivate: [sessionRouteGuard],
+    data: {
+      [SESSION_ROUTE_MODE]: GameSessionStatus.CashedOut,
+    },
     loadComponent: () =>
       import('./features/cashout/pages/cashout-page/cashout-page.component')
-        .then((module) => module.CashoutPageComponent),
-  },
-  {
-    path: 'not-found',
-    loadComponent: () =>
-      import('./features/not-found/pages/not-found-page/not-found-page.component')
-        .then((module) => module.NotFoundPageComponent),
+        .then(({ CashoutPageComponent }) => CashoutPageComponent),
   },
   {
     path: '**',
-    redirectTo: 'not-found',
+    redirectTo: '',
   },
 ];
 ```
@@ -452,13 +512,56 @@ A resolver is not used because the guard already needs the current session to de
 ## Client state flow
 
 - `SessionsApiService` returns cold HTTP Observables.
-- The signal store updates `pending` before a request and clears it with `finalize()`.
-- Successful responses update the session, credits, last roll, or cash-out state.
-- Components render readonly and computed signals under `OnPush` change detection.
+- `SessionStoreService` stores the current public session state in signals; the cookie itself is never stored in Angular.
+- The store derives credits, pending state, roll availability, and cash-out availability with readonly and computed signals.
+- Request finalization resets pending state even when a request fails.
+- `GET /sessions/current` returns `SessionState | null`; the API's `204` response becomes the normal `null` state.
+- Successful create, roll, and cash-out responses update the relevant signals.
+- A `401` or `404` from a required mutation clears stale local state and redirects the user to the welcome route.
+- Components render signals under `OnPush` change detection.
 - Explicit component subscriptions use `takeUntilDestroyed()`.
-- A refresh clears in-memory signals, after which the route guard reloads the server session using the browser-managed cookie.
+- Refreshing the browser clears in-memory signals, after which the route guard restores the session using the browser-managed cookie.
 
----
+## Session lifecycle in the client
+
+```text
+Welcome page
+    |
+    | POST /sessions
+    v
+Active session -> /game
+    |
+    | POST /sessions/current/roll
+    | update credits and last-roll signals
+    v
+Animated server result
+    |
+    | POST /sessions/current/cash-out
+    v
+Cashed-out session -> /cashout
+    |
+    | DELETE /sessions/current
+    v
+Cookie cleared + signal store cleared -> /
+```
+
+The cash-out page does not remove the cookie through JavaScript. It calls the server's `DELETE` endpoint, waits for the successful `204` response, clears the public signal state, and then navigates home.
+
+## Casino presentation
+
+The visual layer uses a red, burgundy, gold, cream, green-felt, and charcoal casino palette. Shared Sass variables such as `$mainRed` and reusable mixins provide consistent page shells, panels, headings, and buttons. Component styles use nested selectors while remaining locally encapsulated.
+
+The game page simulates physical reels while a roll request is being resolved:
+
+1. Decorative symbols cycle locally while the reels are spinning.
+2. The controls remain disabled during the animation.
+3. The three symbols returned by NestJS are revealed one reel at a time.
+4. The final balance and win information still come exclusively from the server.
+5. A winning result opens a reusable modal after the final reel stops.
+6. Escape, backdrop interaction, or the modal button closes the result dialog.
+7. Reduced-motion preferences shorten or disable nonessential animation.
+
+The generated animation symbols are never submitted to the API and have no effect on rewards, balance, reroll rules, or concurrency.
 
 # Local Setup
 
@@ -471,7 +574,7 @@ Install:
 
 Check the installed versions:
 
-```powershell
+```sh
 node --version
 npm --version
 ```
@@ -482,21 +585,21 @@ Angular CLI and NestJS CLI do not need to be installed globally because `npm ins
 
 Optional global installations:
 
-```powershell
+```sh
 npm install --global @angular/cli@19.2
 npm install --global @nestjs/cli
 ```
 
 Verify them only when installed globally:
 
-```powershell
+```sh
 ng version
 nest --version
 ```
 
 ## Clone the repository
 
-```powershell
+```sh
 git clone YOUR_REPOSITORY_URL
 cd MS-Group-Home-Assignment
 ```
@@ -505,12 +608,12 @@ cd MS-Group-Home-Assignment
 
 Install dependencies:
 
-```powershell
+```sh
 cd server
 npm install
 ```
 
-The real server environment file is supplied separately. Paste it at exactly:
+The real server environment file is supplied separately. Place it at exactly:
 
 ```text
 MS-Group-Home-Assignment/server/.env
@@ -525,8 +628,6 @@ server/
 ├── package.json
 └── src/
 ```
-
-On Windows, make sure the file is named `.env`, not `.env.txt`.
 
 The supplied file contains values equivalent to:
 
@@ -545,7 +646,7 @@ The supplied Upstash credentials belong to the assignment database. The real `.e
 
 Start NestJS:
 
-```powershell
+```sh
 npm run start:dev
 ```
 
@@ -557,8 +658,8 @@ http://localhost:3000/api
 
 Verify it:
 
-```powershell
-curl.exe http://localhost:3000/api/alive
+```sh
+curl http://localhost:3000/api/alive
 ```
 
 Keep this terminal running.
@@ -567,7 +668,7 @@ Keep this terminal running.
 
 Open a second terminal from the repository root:
 
-```powershell
+```sh
 cd client
 npm install
 ```
@@ -586,7 +687,7 @@ No Angular development proxy is required. The browser contacts NestJS directly, 
 
 Start Angular with the development environment:
 
-```powershell
+```sh
 npm run dev
 ```
 
@@ -619,7 +720,7 @@ Development targets `http://localhost:3000/api`. QA and production may contain d
 
 Typical commands:
 
-```powershell
+```sh
 npm run dev       # development configuration
 npm start         # QA configuration, when configured
 npm run build     # production build
@@ -628,42 +729,33 @@ npm run build:qa  # QA build
 
 ## Manual cookie testing
 
-The server can be tested without Angular by using a curl cookie jar.
+The server can be tested without Angular by using a curl cookie jar:
 
-```powershell
-$cookieJar = ".\casino-cookies.txt"
+```sh
+cookie_jar="./casino-cookies.txt"
 
-curl.exe `
-  --cookie-jar $cookieJar `
-  --request POST `
-  http://localhost:3000/api/sessions
+curl   --cookie-jar "$cookie_jar"   --request POST   http://localhost:3000/api/sessions
 
-curl.exe `
-  --cookie $cookieJar `
-  http://localhost:3000/api/sessions/current
+curl   --cookie "$cookie_jar"   http://localhost:3000/api/sessions/current
 
-curl.exe `
-  --cookie $cookieJar `
-  --request POST `
-  http://localhost:3000/api/sessions/current/roll
+curl   --cookie "$cookie_jar"   --request POST   http://localhost:3000/api/sessions/current/roll
 
-curl.exe `
-  --cookie $cookieJar `
-  --request POST `
-  http://localhost:3000/api/sessions/current/cash-out
+curl   --cookie "$cookie_jar"   --request POST   http://localhost:3000/api/sessions/current/cash-out
+
+curl   --cookie "$cookie_jar"   --cookie-jar "$cookie_jar"   --request DELETE   http://localhost:3000/api/sessions/current
 ```
 
----
+After the final request, calling `GET /api/sessions/current` with the updated cookie jar should return `204 No Content`.
 
 # Tests and Validation
 
 ## Server
 
-Server unit tests mock Redis and randomness, keeping them deterministic and independent of network availability. Coverage includes health checks, session creation and retrieval, game rules, balance boundaries, cash-out behavior, mutation locks, version conflicts, cookie validation, cookie options, and controller-to-service session forwarding.
+Server unit tests mock Redis and randomness, keeping them deterministic and independent of network availability. Coverage includes health checks, session creation and retrieval, game rules, balance boundaries, cash-out behavior, mutation locks, version conflicts, cookie validation modes, cookie options, controller-to-service forwarding, `204` session probing, stale-cookie clearing, and the `DELETE` cookie route.
 
 Run:
 
-```powershell
+```sh
 cd server
 npm test
 npm run lint
@@ -672,15 +764,16 @@ npm run build
 
 ## Client
 
+The client test suite should cover the API service, signal store, consolidated session guard, route outcomes, page actions, reel-result sequencing, and win-modal interactions.
+
 Run the Angular test and production build commands from `client/`:
 
-```powershell
+```sh
 cd client
 npm test
+npm run lint
 npm run build
 ```
-
----
 
 # Development Process
 
@@ -693,6 +786,10 @@ The implementation evolved through these decisions:
 5. Added optimistic session versions as stale-write protection.
 6. Added a shared per-session distributed lock and token-safe release.
 7. Replaced public session IDs with an opaque `HttpOnly` cookie.
-8. Added cookie parsing, validation, and credentialed CORS.
-9. Added the Angular 19.2 application with standalone lazy-loaded screens.
-10. Added typed API services, a global credentials interceptor, an RxJS-backed signal store, and functional session guards.
+8. Added cookie parsing, parameterized required/optional validation, and credentialed CORS.
+9. Added `204 No Content` semantics for the nullable current-session probe and stale-cookie cleanup.
+10. Added `DELETE /api/sessions/current` to clear the browser-managed cookie safely.
+11. Added the Angular 19.2 application with standalone lazy-loaded screens.
+12. Added typed `GET`, `POST`, and `DELETE` API methods, a global credentials interceptor, an RxJS-backed signal store, and a consolidated functional session guard.
+13. Added canonical welcome, active-game, and cash-out routing without a separate not-found screen.
+14. Added reusable Sass variables and mixins, animated reels, reduced-motion support, and a reusable win modal.

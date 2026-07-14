@@ -47,18 +47,36 @@ export class SessionsService {
       );
 
       if (created) {
+        this.logger.log(
+          [
+            'Session created',
+            `session=${this.getSessionReference(session.id)}`,
+            `credits=${session.credits}`,
+            `ttlSeconds=${this.sessionTtlSeconds}`,
+          ].join(' | '),
+        );
+
         return {
           sessionId: session.id,
           credits: session.credits,
-          status: session.status as GameSessionStatus.Active,
+          status:
+            session.status as GameSessionStatus.Active,
         };
       }
     }
 
+    this.logger.error(
+      [
+        'Session creation failed',
+        `attempts=${MAX_SESSION_CREATION_ATTEMPTS}`,
+      ].join(' | '),
+    );
+
     throw new ServiceUnavailableException({
       statusCode: 503,
       code: 'SESSION_CREATION_FAILED',
-      message: 'Unable to create a game session.',
+      message:
+        'Unable to create a game session.',
     });
   }
 
@@ -69,6 +87,14 @@ export class SessionsService {
     await this.sessionRepository.findById(sessionId);
 
   if (!session) {
+    this.logger.warn(
+      [
+        'Session lookup failed',
+        `session=${this.getSessionReference(sessionId)}`,
+        'reason=not_found_or_expired',
+      ].join(' | '),
+    );
+
     throw new NotFoundException({
       statusCode: 404,
       code: 'SESSION_NOT_FOUND',
@@ -195,6 +221,14 @@ private async withSessionMutationLock<T>(
     );
 
   if (!lockAcquired) {
+    this.logger.warn(
+      [
+        'Session mutation rejected',
+        `session=${this.getSessionReference(sessionId)}`,
+        'reason=lock_already_owned',
+      ].join(' | '),
+    );
+
     throw new ConflictException({
       statusCode: 409,
       code: 'SESSION_OPERATION_IN_PROGRESS',
@@ -235,6 +269,14 @@ private async executeCashOut(
 
   switch (result.outcome) {
     case CashOutOutcome.CashedOut:
+      this.logger.log(
+        [
+          'Session cashed out',
+          `session=${this.getSessionReference(sessionId)}`,
+          `credits=${result.cashedOutCredits}`,
+        ].join(' | '),
+      );
+
       return {
         cashedOutCredits:
           result.cashedOutCredits,
@@ -283,6 +325,18 @@ private async executeRoll(
 
   switch (commitResult.outcome) {
     case CommitRollOutcome.Committed:
+      this.logger.log(
+        [
+          'Roll committed',
+          `session=${this.getSessionReference(sessionId)}`,
+          `symbols=${roll.symbols.join('')}`,
+          `won=${roll.won}`,
+          `reward=${roll.reward}`,
+          `credits=${commitResult.credits}`,
+          `version=${session.version + 1}`,
+        ].join(' | '),
+      );
+
       return {
         symbols: roll.symbols,
         won: roll.won,
@@ -314,6 +368,12 @@ private async executeRoll(
         )}`,
       );
   }
+}
+
+private getSessionReference(
+  sessionId: string,
+): string {
+  return sessionId.slice(0, 8);
 }
   
 }

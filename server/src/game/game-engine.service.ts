@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable,
+    Logger,
+} from '@nestjs/common';
 import {
   SLOT_SYMBOLS,
   SYMBOL_REWARDS,
@@ -13,6 +15,8 @@ const HIGH_REROLL_PROBABILITY = 0.6;
 
 @Injectable()
 export class GameEngineService {
+  private readonly logger = new Logger(GameEngineService.name);
+
   constructor(
     private readonly randomSource: RandomSource,
   ) {}
@@ -42,6 +46,18 @@ export class GameEngineService {
     const finalSymbols = rerolled
       ? this.generateSymbols()
       : initialSymbols;
+
+    if(rerolled){
+          this.logger.log(
+      [
+        'House reroll applied',
+        `startingCredits=${currentCredits}`,
+        `initialSymbols=${initialSymbols.join('')}`,
+        `finalSymbols=${finalSymbols.join('')}`,
+        `finalWon=${this.isWinningResult(finalSymbols)}`,
+      ].join(' | '),
+    );
+    }
 
     const won = this.isWinningResult(finalSymbols);
 
