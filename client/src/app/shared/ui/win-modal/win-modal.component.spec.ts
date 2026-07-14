@@ -1,18 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { NotFoundPageComponent } from './not-found-page.component';
+import { WinModalComponent } from './win-modal.component';
 
-describe('NotFoundPageComponent', () => {
-  let component: NotFoundPageComponent;
-  let fixture: ComponentFixture<NotFoundPageComponent>;
+describe('WinModalComponent', () => {
+  let component: WinModalComponent;
+  let fixture: ComponentFixture<WinModalComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [NotFoundPageComponent]
+      imports: [WinModalComponent]
     })
     .compileComponents();
 
-    fixture = TestBed.createComponent(NotFoundPageComponent);
+    fixture = TestBed.createComponent(WinModalComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });

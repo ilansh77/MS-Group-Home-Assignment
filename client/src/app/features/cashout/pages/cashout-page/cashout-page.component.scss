@@ -1,0 +1,84 @@
+@use 'casino-theme' as casino;
+
+:host {
+  display: block;
+}
+
+.cashout-page {
+  @include casino.page-shell;
+
+  &__card {
+    @include casino.casino-panel;
+
+    width: min(34rem, 100%);
+    padding:
+      clamp(2rem, 7vw, 4rem);
+
+    text-align: center;
+  }
+
+  &__eyebrow {
+    margin: 0;
+    color: casino.$lightGold;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  &__title {
+    @include casino.gold-heading;
+
+    margin-top: 0.5rem;
+    font-size:
+      clamp(2.5rem, 10vw, 4.5rem);
+  }
+
+  &__payout {
+    display: grid;
+    place-items: center;
+
+    width: 12rem;
+    aspect-ratio: 1;
+    margin: 2rem auto;
+
+    border:
+      0.45rem double
+      casino.$lightGold;
+    border-radius: 50%;
+
+    background:
+      radial-gradient(
+        circle,
+        casino.$feltGreen,
+        casino.$darkGreen
+      );
+
+    box-shadow:
+      casino.$goldGlow,
+      inset 0 0 1.5rem
+        rgba(0, 0, 0, 0.45);
+
+    span,
+    small {
+      color: casino.$lightGold;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    strong {
+      color: casino.$cream;
+      font-size: 3.5rem;
+      line-height: 1;
+    }
+  }
+
+  &__button {
+    @include casino.casino-button;
+  }
+
+  &__error {
+    margin: 1.2rem 0 0;
+    color: casino.$lightGold;
+  }
+}

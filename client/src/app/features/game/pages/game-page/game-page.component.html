@@ -1,61 +1,117 @@
-<main>
-  <h1>Casino Jackpot</h1>
+<main class="game-page">
+  <section class="game-page__cabinet">
+    <header class="game-page__header">
+      <p class="game-page__eyebrow">
+        Lucky Reel Casino
+      </p>
 
-  <p>
-    Current credits:
-    <strong>
-      {{ sessionStore.credits() }}
-    </strong>
-  </p>
+      <h1 class="game-page__title">
+        Jackpot
+      </h1>
 
-  <section
-    aria-label="Slot machine"
-  >
-    @if (
-      sessionStore.lastRoll();
-      as roll
-    ) {
-      @for (
-        symbol of roll.symbols;
-        track $index
-      ) {
-        <span>
-          {{ symbol }}
-        </span>
+      <div class="game-page__credits">
+        <span>Credits</span>
+
+        <strong>
+          {{ sessionStore.credits() }}
+        </strong>
+      </div>
+    </header>
+
+    <section
+      class="slot-machine"
+      aria-label="Slot machine"
+      aria-live="polite"
+    >
+      <div
+        class="slot-machine__lights"
+        aria-hidden="true"
+      ></div>
+
+      <div class="slot-machine__reels">
+        @for (
+          symbol of displayedSymbols();
+          track $index
+        ) {
+          <div
+            class="reel"
+            [class.reel--spinning]="
+              rolling() &&
+              !revealedReels()[$index]
+            "
+          >
+            <span class="reel__symbol">
+              {{
+                symbolGlyphs[symbol]
+              }}
+            </span>
+          </div>
+        }
+      </div>
+
+      @if (!rolling()) {
+        @if (
+          sessionStore.lastRoll();
+          as result
+        ) {
+          <p
+            class="slot-machine__result"
+            [class.slot-machine__result--win]="
+              result.won
+            "
+          >
+            @if (result.won) {
+              Winner! +{{ result.reward }}
+              credits
+            } @else {
+              Try your luck again
+            }
+          </p>
+        }
       }
-    } @else {
-      <span>?</span>
-      <span>?</span>
-      <span>?</span>
+    </section>
+
+    <div class="game-page__actions">
+      <button
+        type="button"
+        class="game-page__roll"
+        [disabled]="!canRoll()"
+        (click)="roll()"
+      >
+        @if (rolling()) {
+          Reels spinning…
+        } @else {
+          Roll
+        }
+      </button>
+
+      <button
+        type="button"
+        class="game-page__cashout"
+        [disabled]="!canCashOut()"
+        (click)="cashOut()"
+      >
+        Cash out
+      </button>
+    </div>
+
+    @if (
+      sessionStore.error();
+      as error
+    ) {
+      <p
+        class="game-page__error"
+        role="alert"
+      >
+        {{ error }}
+      </p>
     }
   </section>
-
-  <button
-    type="button"
-    [disabled]="!sessionStore.canRoll()"
-    (click)="roll()"
-  >
-    @if (sessionStore.pending()) {
-      Rolling…
-    } @else {
-      Roll
-    }
-  </button>
-
-  <button
-    type="button"
-    [disabled]="!sessionStore.canCashOut()"
-    (click)="cashOut()"
-  >
-    Cash out
-  </button>
-
-  @if (
-    sessionStore.error();
-    as error
-  ) {
-    <p role="alert">
-      {{ error }}
-    </p>
-  }
 </main>
+
+@if (winModalOpen()) {
+  <app-win-modal
+    [reward]="winReward()"
+    (closed)="closeWinModal()"
+  />
+}

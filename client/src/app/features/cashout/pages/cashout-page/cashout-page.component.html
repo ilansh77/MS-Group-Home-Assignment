@@ -1,36 +1,50 @@
-<main>
-  <h1>Cashed out</h1>
-
-  <p>
-    Final payout:
-    <strong>
-      {{
-        sessionStore
-          .session()
-          ?.cashedOutCredits ?? 0
-      }}
-    </strong>
-    credits
-  </p>
-
-  <button
-    type="button"
-    [disabled]="sessionStore.pending()"
-    (click)="startNewGame()"
-  >
-    @if (sessionStore.pending()) {
-      Clearing…
-    } @else {
-      Start a new game
-    }
-  </button>
-
-  @if (
-    sessionStore.error();
-    as error
-  ) {
-    <p role="alert">
-      {{ error }}
+<main class="cashout-page">
+  <section class="cashout-page__card">
+    <p class="cashout-page__eyebrow">
+      Session complete
     </p>
-  }
+
+    <h1 class="cashout-page__title">
+      Cashed out
+    </h1>
+
+    <div class="cashout-page__payout">
+      <span>Final payout</span>
+
+      <strong>
+        {{
+          sessionStore
+            .session()
+            ?.cashedOutCredits ?? 0
+        }}
+      </strong>
+
+      <small>credits</small>
+    </div>
+
+    <button
+      type="button"
+      class="cashout-page__button"
+      [disabled]="sessionStore.pending()"
+      (click)="startNewGame()"
+    >
+      @if (sessionStore.pending()) {
+        Clearing table…
+      } @else {
+        Start a new game
+      }
+    </button>
+
+    @if (
+      sessionStore.error();
+      as error
+    ) {
+      <p
+        class="cashout-page__error"
+        role="alert"
+      >
+        {{ error }}
+      </p>
+    }
+  </section>
 </main>

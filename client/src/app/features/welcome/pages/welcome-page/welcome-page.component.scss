@@ -1,0 +1,102 @@
+@use 'casino-theme' as casino;
+
+:host {
+  display: block;
+}
+
+.welcome-page {
+  @include casino.page-shell;
+
+  &__card {
+    @include casino.casino-panel;
+
+    width: min(34rem, 100%);
+    padding:
+      clamp(2rem, 7vw, 4rem);
+
+    text-align: center;
+  }
+
+  &__eyebrow {
+    margin: 0;
+
+    color: casino.$lightGold;
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+  }
+
+  &__title {
+    @include casino.gold-heading;
+
+    margin-top: 0.5rem;
+    font-size:
+      clamp(2.5rem, 11vw, 5rem);
+    line-height: 0.92;
+    text-transform: uppercase;
+  }
+
+  &__chips {
+    display: flex;
+    justify-content: center;
+    gap: 0.7rem;
+
+    margin: 2rem 0;
+
+    span {
+      display: grid;
+      place-items: center;
+
+      width: 3.5rem;
+      aspect-ratio: 1;
+
+      border:
+        0.25rem dashed
+        casino.$cream;
+      border-radius: 50%;
+
+      background:
+        casino.$mainRed;
+      color: casino.$gold;
+
+      font-family:
+        Georgia,
+        serif;
+      font-weight: 900;
+
+      box-shadow:
+        casino.$goldGlow;
+
+      &:nth-child(2) {
+        background:
+          casino.$feltGreen;
+      }
+    }
+  }
+
+  &__description {
+    max-width: 27rem;
+    margin: 0 auto 2rem;
+
+    color:
+      rgba(
+        casino.$cream,
+        0.84
+      );
+
+    font-size: 1.05rem;
+    line-height: 1.65;
+  }
+
+  &__button {
+    @include casino.casino-button;
+
+    width: min(18rem, 100%);
+  }
+
+  &__error {
+    margin: 1.2rem 0 0;
+    color: casino.$lightGold;
+  }
+}

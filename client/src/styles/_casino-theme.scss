@@ -1,0 +1,135 @@
+$mainRed: #b10f2e;
+$darkRed: #680919;
+$brightRed: #db173d;
+
+$gold: #f4c95d;
+$darkGold: #a86c12;
+$lightGold: #ffe7a0;
+
+$feltGreen: #0d4b32;
+$darkGreen: #062d20;
+
+$cream: #fff2cc;
+$paper: #fff8e8;
+
+$charcoal: #170d0d;
+$black: #090606;
+
+$softShadow:
+  0 1.25rem 3rem
+  rgba(0, 0, 0, 0.42);
+
+$goldGlow:
+  0 0 0.8rem
+  rgba($gold, 0.42);
+
+@mixin page-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+
+  background:
+    radial-gradient(
+      circle at 50% 10%,
+      rgba($mainRed, 0.65),
+      transparent 34rem
+    ),
+    linear-gradient(
+      145deg,
+      $charcoal,
+      $black
+    );
+}
+
+@mixin casino-panel {
+  border: 0.18rem solid $gold;
+  border-radius: 1.5rem;
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba($darkRed, 0.96),
+      rgba($charcoal, 0.98)
+    );
+
+  box-shadow:
+    $softShadow,
+    inset 0 0 0 0.18rem
+      rgba($lightGold, 0.12);
+}
+
+@mixin casino-button(
+  $background: $mainRed
+) {
+  min-height: 3rem;
+  padding: 0.75rem 1.4rem;
+
+  border: 0.12rem solid $gold;
+  border-radius: 999rem;
+
+  background:
+    linear-gradient(
+      180deg,
+      lighten($background, 7%),
+      darken($background, 8%)
+    );
+
+  color: $cream;
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+
+  box-shadow:
+    0 0.5rem 1rem
+      rgba(0, 0, 0, 0.3),
+    inset 0 0.1rem 0
+      rgba(255, 255, 255, 0.2);
+
+  cursor: pointer;
+  transition:
+    transform 150ms ease,
+    filter 150ms ease,
+    box-shadow 150ms ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-0.15rem);
+    filter: brightness(1.12);
+    box-shadow:
+      0 0.75rem 1.25rem
+        rgba(0, 0, 0, 0.38),
+      $goldGlow;
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  &:focus-visible {
+    outline:
+      0.2rem solid $lightGold;
+    outline-offset: 0.2rem;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    filter: grayscale(0.6);
+    opacity: 0.55;
+  }
+}
+
+@mixin gold-heading {
+  margin: 0;
+
+  color: $gold;
+  font-family:
+    Georgia,
+    'Times New Roman',
+    serif;
+
+  letter-spacing: 0.06em;
+  text-shadow:
+    0 0.15rem 0 $darkGold,
+    $goldGlow;
+}

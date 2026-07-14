@@ -1,0 +1,325 @@
+@use 'casino-theme' as casino;
+
+:host {
+  display: block;
+}
+
+.game-page {
+  @include casino.page-shell;
+
+  &__cabinet {
+    @include casino.casino-panel;
+
+    width: min(46rem, 100%);
+    padding:
+      clamp(1rem, 4vw, 2rem);
+  }
+
+  &__header {
+    display: grid;
+    grid-template-columns:
+      1fr auto;
+    align-items: center;
+    gap: 0.4rem 1.25rem;
+
+    padding-bottom: 1.25rem;
+
+    border-bottom:
+      0.12rem solid
+      rgba(casino.$gold, 0.35);
+  }
+
+  &__eyebrow {
+    grid-column: 1;
+
+    margin: 0;
+
+    color: casino.$lightGold;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  &__title {
+    @include casino.gold-heading;
+
+    grid-column: 1;
+    font-size:
+      clamp(2.2rem, 8vw, 4rem);
+    text-transform: uppercase;
+  }
+
+  &__credits {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+
+    display: grid;
+    place-items: center;
+
+    min-width: 7rem;
+    padding: 0.8rem 1rem;
+
+    border: 0.12rem solid casino.$gold;
+    border-radius: 1rem;
+
+    background:
+      linear-gradient(
+        145deg,
+        casino.$feltGreen,
+        casino.$darkGreen
+      );
+
+    box-shadow:
+      inset 0 0 1rem
+        rgba(0, 0, 0, 0.45);
+
+    span {
+      color: casino.$lightGold;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    strong {
+      color: casino.$cream;
+      font-size: 2rem;
+    }
+  }
+
+  &__actions {
+    display: grid;
+    grid-template-columns:
+      minmax(0, 1fr)
+      minmax(0, 1fr);
+    gap: 1rem;
+
+    margin-top: 1.5rem;
+  }
+
+  &__roll {
+    @include casino.casino-button;
+  }
+
+  &__cashout {
+    @include casino.casino-button(
+      casino.$feltGreen
+    );
+  }
+
+  &__error {
+    margin:
+      1.25rem 0 0;
+    padding: 0.8rem;
+
+    border:
+      0.1rem solid
+      casino.$brightRed;
+    border-radius: 0.75rem;
+
+    background:
+      rgba(
+        casino.$brightRed,
+        0.12
+      );
+
+    color: casino.$cream;
+    text-align: center;
+  }
+}
+
+.slot-machine {
+  position: relative;
+
+  margin-top: 1.5rem;
+  padding:
+    2rem
+    clamp(0.75rem, 3vw, 1.5rem)
+    1.25rem;
+
+  border:
+    0.25rem solid
+    casino.$darkGold;
+  border-radius: 1.5rem;
+
+  background:
+    linear-gradient(
+      145deg,
+      casino.$gold,
+      casino.$darkGold
+    );
+
+  box-shadow:
+    inset 0 0 0 0.2rem
+      casino.$lightGold,
+    0 1rem 2rem
+      rgba(0, 0, 0, 0.35);
+
+  &__lights {
+    position: absolute;
+    top: 0.45rem;
+    left: 1rem;
+    right: 1rem;
+
+    height: 0.55rem;
+
+    background:
+      radial-gradient(
+        circle,
+        casino.$cream 0 28%,
+        casino.$brightRed 32% 50%,
+        transparent 54%
+      )
+      0 0 / 1.5rem 0.55rem
+      repeat-x;
+
+    filter:
+      drop-shadow(
+        0 0 0.3rem
+        casino.$gold
+      );
+
+    animation:
+      marquee-lights
+      700ms
+      steps(2)
+      infinite;
+  }
+
+  &__reels {
+    display: grid;
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr));
+    gap:
+      clamp(0.45rem, 2vw, 1rem);
+  }
+
+  &__result {
+    min-height: 1.5rem;
+    margin: 1rem 0 0;
+
+    color: casino.$charcoal;
+    font-weight: 800;
+    text-align: center;
+
+    &--win {
+      color: casino.$darkRed;
+      font-size: 1.2rem;
+      text-shadow:
+        0 0.05rem 0
+        casino.$cream;
+    }
+  }
+}
+
+.reel {
+  overflow: hidden;
+
+  display: grid;
+  place-items: center;
+
+  min-height:
+    clamp(6rem, 18vw, 9rem);
+
+  border:
+    0.18rem solid
+    casino.$charcoal;
+  border-radius: 0.85rem;
+
+  background:
+    linear-gradient(
+      180deg,
+      #d7c39d,
+      casino.$paper 40%,
+      casino.$paper 60%,
+      #d7c39d
+    );
+
+  box-shadow:
+    inset 0 0 1.2rem
+      rgba(0, 0, 0, 0.35);
+
+  &__symbol {
+    display: block;
+
+    font-size:
+      clamp(2.6rem, 10vw, 5.5rem);
+
+    filter:
+      drop-shadow(
+        0 0.2rem 0.1rem
+        rgba(0, 0, 0, 0.25)
+      );
+  }
+
+  &--spinning {
+    .reel__symbol {
+      animation:
+        reel-jitter
+        90ms
+        linear
+        infinite;
+
+      filter:
+        blur(0.08rem)
+        drop-shadow(
+          0 0.3rem 0.1rem
+          rgba(0, 0, 0, 0.25)
+        );
+    }
+  }
+}
+
+@keyframes reel-jitter {
+  0% {
+    transform:
+      translateY(-0.18rem)
+      scaleY(1.08);
+  }
+
+  50% {
+    transform:
+      translateY(0.18rem)
+      scaleY(0.92);
+  }
+
+  100% {
+    transform:
+      translateY(-0.18rem)
+      scaleY(1.08);
+  }
+}
+
+@keyframes marquee-lights {
+  to {
+    background-position:
+      0.75rem 0;
+  }
+}
+
+@media (
+  max-width: 34rem
+) {
+  .game-page {
+    &__header {
+      grid-template-columns: 1fr;
+      text-align: center;
+    }
+
+    &__eyebrow,
+    &__title,
+    &__credits {
+      grid-column: 1;
+      grid-row: auto;
+    }
+
+    &__credits {
+      margin-top: 0.75rem;
+    }
+
+    &__actions {
+      grid-template-columns: 1fr;
+    }
+  }
+}
