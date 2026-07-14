@@ -4,17 +4,22 @@ import {
   DestroyRef,
   inject,
 } from '@angular/core';
-import { Router } from '@angular/router';
 import {
   takeUntilDestroyed,
 } from '@angular/core/rxjs-interop';
-import { SessionStoreService } from '../../../../core/session/session-store.service';
+import {
+  Router,
+} from '@angular/router';
+import {
+  SessionStoreService,
+} from '../../../../core/session/session-store.service';
 
 @Component({
-  selector: 'app-welcome-page',
+  selector:
+    'app-welcome-page',
   standalone: true,
   templateUrl:
-'./welcome-page.component.html',
+    './welcome-page.component.html',
   styleUrl:
     './welcome-page.component.scss',
   changeDetection:
@@ -31,7 +36,9 @@ export class WelcomePageComponent {
     inject(SessionStoreService);
 
   startGame(): void {
-    if (this.sessionStore.pending()) {
+    if (
+      this.sessionStore.pending()
+    ) {
       return;
     }
 
@@ -48,7 +55,6 @@ export class WelcomePageComponent {
             '/game',
           );
         },
-        error: () => undefined,
       });
   }
 }

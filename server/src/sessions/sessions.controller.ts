@@ -1,135 +1,135 @@
 import {
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Post,
   Res,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type {
-  CookieOptions,
-  Response,
-} from 'express';
-import { CashOutSessionResponseDto } from './dto/cash-out-session-response.dto';
-import { CreateSessionResponseDto } from './dto/create-session-response.dto';
-import { GetSessionResponseDto } from './dto/get-session-response.dto';
-import { RollSessionResponseDto } from './dto/roll-session-response.dto';
-import { SessionCookiePipe } from './pipes/session-cookie.pipe';
-import {
-  SESSION_COOKIE_NAME,
-  SESSION_COOKIE_PATH,
-} from './session-cookie.constants';
+import type { Response } from 'express';
 import { SessionsService } from './sessions.service';
-import { Cookie } from './../common/http/decorators/cookie.decorator';
-
-const DEFAULT_SESSION_TTL_SECONDS =
-  86_400;
+import { SessionCookieOptionsService } from './session-cookie-options.service';
+import { Cookie } from '../common/http/decorators/cookie.decorator';
+import { GetSessionResponseDto } from './dto/get-session-response.dto';
+import {
+  OPTIONAL_SESSION_COOKIE_PIPE,
+  REQUIRED_SESSION_COOKIE_PIPE,
+} from './pipes/session-cookie.pipe';
 
 @Controller('sessions')
 export class SessionsController {
-  private readonly cookieOptions:
-    CookieOptions;
-
   constructor(
     private readonly sessionsService:
       SessionsService,
-    private readonly configService:
-      ConfigService,
-  ) {
-    this.cookieOptions =
-      this.buildCookieOptions();
-  }
+    private readonly cookieOptions:
+      SessionCookieOptionsService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createSession(
     @Res({ passthrough: true })
     response: Response,
-  ): Promise<CreateSessionResponseDto> {
-    const createdSession =
+  ) {
+    const session =
       await this.sessionsService.createSession();
 
     response.cookie(
-      SESSION_COOKIE_NAME,
-      createdSession.sessionId,
-      this.cookieOptions,
+      SessionCookieOptionsService.COOKIE_NAME,
+      session.sessionId,
+      this.cookieOptions.getSessionCookieOptions(
+        true,
+      ),
     );
 
     return {
-      credits: createdSession.credits,
-      status: createdSession.status,
+      credits: session.credits,
+      status: session.status,
     };
   }
 
-  @Get('current')
-  getCurrentSession(
-    @Cookie(
-      SESSION_COOKIE_NAME,
-      SessionCookiePipe,
-    )
-    sessionId: string,
-  ): Promise<GetSessionResponseDto> {
-    return this.sessionsService.getSession(
+@Get('current')
+async getCurrentSession(
+  @Cookie(
+    SessionCookieOptionsService.COOKIE_NAME,
+    OPTIONAL_SESSION_COOKIE_PIPE,
+  )
+  sessionId: string | null,
+  @Res({ passthrough: true })
+  response: Response,
+): Promise<GetSessionResponseDto | undefined> {
+  if (!sessionId) {
+    response.status(HttpStatus.NO_CONTENT);
+
+    return undefined;
+  }
+
+  try {
+    return await this.sessionsService.getSession(
       sessionId,
     );
+  } catch (error: unknown) {
+    if (
+      error instanceof NotFoundException
+    ) {
+      response.clearCookie(
+        SessionCookieOptionsService.COOKIE_NAME,
+        this.cookieOptions
+          .getSessionCookieOptions(false),
+      );
+
+      response.status(
+        HttpStatus.NO_CONTENT,
+      );
+
+      return undefined;
+    }
+
+    throw error;
   }
+}
 
   @Post('current/roll')
   @HttpCode(HttpStatus.OK)
   rollCurrentSession(
     @Cookie(
-      SESSION_COOKIE_NAME,
-      SessionCookiePipe,
+      SessionCookieOptionsService.COOKIE_NAME,
+      REQUIRED_SESSION_COOKIE_PIPE
     )
     sessionId: string,
-  ): Promise<RollSessionResponseDto> {
-    return this.sessionsService.rollSession(sessionId);
+  ) {
+    return this.sessionsService.rollSession(
+      sessionId,
+    );
   }
 
   @Post('current/cash-out')
   @HttpCode(HttpStatus.OK)
   cashOutCurrentSession(
     @Cookie(
-      SESSION_COOKIE_NAME,
-      SessionCookiePipe,
+      SessionCookieOptionsService.COOKIE_NAME,
+      REQUIRED_SESSION_COOKIE_PIPE,
     )
     sessionId: string,
-  ): Promise<CashOutSessionResponseDto> {
-    return this.sessionsService.cashOutSession(sessionId);
+  ) {
+    return this.sessionsService.cashOutSession(
+      sessionId,
+    );
   }
 
-  private buildCookieOptions():
-    CookieOptions {
-    const configuredTtl =
-      this.configService.get<string>(
-        'SESSION_TTL_SECONDS',
-      );
-
-    const ttlSeconds = configuredTtl
-      ? Number(configuredTtl)
-      : DEFAULT_SESSION_TTL_SECONDS;
-
-    if (
-      !Number.isInteger(ttlSeconds) ||
-      ttlSeconds <= 0
-    ) {
-      throw new Error(
-        `Invalid SESSION_TTL_SECONDS configuration: ${configuredTtl}`,
-      );
-    }
-
-    const isProduction =
-      this.configService.get<string>(
-        'NODE_ENV',
-      ) === 'production';
-
-    return {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      path: SESSION_COOKIE_PATH,
-      maxAge: ttlSeconds * 1_000,
-    };
+  @Delete('current')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  clearCurrentSession(
+    @Res({ passthrough: true })
+    response: Response,
+  ): void {
+    response.clearCookie(
+      SessionCookieOptionsService.COOKIE_NAME,
+      this.cookieOptions.getSessionCookieOptions(
+        false,
+      ),
+    );
   }
 }

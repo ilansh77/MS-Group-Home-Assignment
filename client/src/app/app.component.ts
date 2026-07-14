@@ -9,8 +9,11 @@ import {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet],
-  template: '<router-outlet />',
+  imports: [
+    RouterOutlet,
+  ],
+  template:
+    '<router-outlet />',
   changeDetection:
     ChangeDetectionStrategy.OnPush,
 })

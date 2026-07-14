@@ -1,20 +1,36 @@
-    <main>
-      <h1>Cashed out</h1>
+<main>
+  <h1>Cashed out</h1>
 
-      <p>
-        Final payout:
-        <strong>
-          {{
-            sessionStore
-              .session()
-              ?.cashedOutCredits ?? 0
-          }}
-        </strong>
-        credits
-      </p>
+  <p>
+    Final payout:
+    <strong>
+      {{
+        sessionStore
+          .session()
+          ?.cashedOutCredits ?? 0
+      }}
+    </strong>
+    credits
+  </p>
 
-      <a routerLink="/">
-        Start another game
-      </a>
-    </main>
-  
+  <button
+    type="button"
+    [disabled]="sessionStore.pending()"
+    (click)="startNewGame()"
+  >
+    @if (sessionStore.pending()) {
+      Clearing…
+    } @else {
+      Start a new game
+    }
+  </button>
+
+  @if (
+    sessionStore.error();
+    as error
+  ) {
+    <p role="alert">
+      {{ error }}
+    </p>
+  }
+</main>

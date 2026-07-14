@@ -2,8 +2,8 @@
   <h1>Casino Jackpot</h1>
 
   <p>
-    Start with 10 credits and test
-    your luck.
+    Start with 10 credits and
+    test your luck.
   </p>
 
   <button
@@ -18,7 +18,10 @@
     }
   </button>
 
-  @if (sessionStore.error(); as error) {
+  @if (
+    sessionStore.error();
+    as error
+  ) {
     <p role="alert">
       {{ error }}
     </p>

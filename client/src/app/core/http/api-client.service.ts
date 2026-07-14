@@ -38,6 +38,14 @@ export class ApiClientService {
     );
   }
 
+  delete<TResponse = void>(
+    path: string,
+  ): Observable<TResponse> {
+    return this.http.delete<TResponse>(
+      this.buildUrl(path),
+    );
+  }
+
   private buildUrl(path: string): string {
     return `${this.baseUrl}/${path.replace(/^\/+/, '')}`;
   }

@@ -12,7 +12,7 @@ import { SessionsModule } from './sessions/sessions.module';
       envFilePath: '.env',
     }),
     RedisModule,
-    SessionsModule
+    SessionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

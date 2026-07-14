@@ -7,11 +7,16 @@ import {
 import {
   takeUntilDestroyed,
 } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
-import { SessionStoreService } from '../../../../core/session/session-store.service';
+import {
+  Router,
+} from '@angular/router';
+import {
+  SessionStoreService,
+} from '../../../../core/session/session-store.service';
 
 @Component({
-  selector: 'app-game-page',
+  selector:
+    'app-game-page',
   standalone: true,
   templateUrl:
     './game-page.component.html',
@@ -31,7 +36,9 @@ export class GamePageComponent {
     inject(SessionStoreService);
 
   roll(): void {
-    if (!this.sessionStore.canRoll()) {
+    if (
+      !this.sessionStore.canRoll()
+    ) {
       return;
     }
 
@@ -43,12 +50,16 @@ export class GamePageComponent {
         ),
       )
       .subscribe({
-        error: () => undefined,
+        error: () => {
+          this.redirectWhenSessionIsMissing();
+        },
       });
   }
 
   cashOut(): void {
-    if (this.sessionStore.pending()) {
+    if (
+      !this.sessionStore.canCashOut()
+    ) {
       return;
     }
 
@@ -65,7 +76,22 @@ export class GamePageComponent {
             '/cashout',
           );
         },
-        error: () => undefined,
+        error: () => {
+          this.redirectWhenSessionIsMissing();
+        },
       });
+  }
+
+  private redirectWhenSessionIsMissing():
+    void {
+    if (
+      this.sessionStore.session()
+    ) {
+      return;
+    }
+
+    void this.router.navigateByUrl(
+      '/',
+    );
   }
 }

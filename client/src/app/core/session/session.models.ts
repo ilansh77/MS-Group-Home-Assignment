@@ -10,11 +10,12 @@ export enum SlotSymbol {
   Watermelon = 'W',
 }
 
-export type SlotSymbols = readonly [
-  SlotSymbol,
-  SlotSymbol,
-  SlotSymbol,
-];
+export type SlotSymbols =
+  readonly [
+    SlotSymbol,
+    SlotSymbol,
+    SlotSymbol,
+  ];
 
 export interface SessionState {
   credits: number;
@@ -23,6 +24,11 @@ export interface SessionState {
   updatedAt?: string;
   cashedOutAt?: string;
   cashedOutCredits?: number;
+}
+
+export interface CreateSessionResponse {
+  credits: number;
+  status: GameSessionStatus;
 }
 
 export interface RollSessionResponse {
@@ -34,5 +40,6 @@ export interface RollSessionResponse {
 
 export interface CashOutSessionResponse {
   cashedOutCredits: number;
-  status: GameSessionStatus.CashedOut;
+  status:
+    GameSessionStatus.CashedOut;
 }

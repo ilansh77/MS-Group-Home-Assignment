@@ -1,15 +1,17 @@
 import {
   type INestApplication,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
-import { SessionCookiePipe } from '../../../sessions/pipes/session-cookie.pipe';
-import { SESSION_COOKIE_NAME } from '../../../sessions/session-cookie.constants';
-import { SessionsController } from '../../../sessions/sessions.controller';
-import { SessionsService } from '../../../sessions/sessions.service';
 import request from 'supertest';
 import { GameSessionStatus } from '../../../sessions/game-session';
+import {
+  SessionsController,
+} from '../../../sessions/sessions.controller';
+import {
+  SessionsService,
+} from '../../../sessions/sessions.service';
+import { SessionCookieOptionsService } from '../../../sessions/session-cookie-options.service';
 
 describe('Session cookie routes', () => {
   let app: INestApplication;
@@ -21,22 +23,21 @@ describe('Session cookie routes', () => {
     cashOutSession: jest.fn(),
   };
 
-  const configServiceMock = {
-    get: jest.fn(
-      (
-        key: string,
-      ): string | undefined => {
-        switch (key) {
-          case 'SESSION_TTL_SECONDS':
-            return '86400';
-
-          case 'NODE_ENV':
-            return 'test';
-
-          default:
-            return undefined;
-        }
-      },
+  const sessionCookieOptionsServiceMock = {
+    getSessionCookieOptions: jest.fn(
+      (includeLifetime: boolean) => ({
+        httpOnly: true,
+        secure: false,
+        sameSite: 'lax' as const,
+        path:
+          SessionCookieOptionsService
+            .COOKIE_PATH,
+        ...(includeLifetime
+          ? {
+              maxAge: 86_400_000,
+            }
+          : {}),
+      }),
     ),
   };
 
@@ -47,14 +48,15 @@ describe('Session cookie routes', () => {
           SessionsController,
         ],
         providers: [
-          SessionCookiePipe,
           {
             provide: SessionsService,
             useValue: sessionsServiceMock,
           },
           {
-            provide: ConfigService,
-            useValue: configServiceMock,
+            provide:
+              SessionCookieOptionsService,
+            useValue:
+              sessionCookieOptionsServiceMock,
           },
         ],
       }).compile();
@@ -95,7 +97,10 @@ describe('Session cookie routes', () => {
       .get('/api/sessions/current')
       .set(
         'Cookie',
-        `${SESSION_COOKIE_NAME}=${sessionId}`,
+        `${
+          SessionCookieOptionsService
+            .COOKIE_NAME
+        }=${sessionId}`,
       )
       .expect(200);
 
@@ -104,17 +109,10 @@ describe('Session cookie routes', () => {
     ).toHaveBeenCalledWith(sessionId);
   });
 
-  it('rejects a request without the session cookie', async () => {
-    const response =
-      await request(
-        app.getHttpServer(),
-      )
-        .get('/api/sessions/current')
-        .expect(401);
-
-    expect(response.body).toMatchObject({
-      code: 'SESSION_COOKIE_MISSING',
-    });
+  it('returns 204 when the session cookie is missing', async () => {
+    await request(app.getHttpServer())
+      .get('/api/sessions/current')
+      .expect(204);
 
     expect(
       sessionsServiceMock.getSession,
@@ -129,12 +127,37 @@ describe('Session cookie routes', () => {
         .get('/api/sessions/current')
         .set(
           'Cookie',
-          `${SESSION_COOKIE_NAME}=invalid`,
+          `${
+            SessionCookieOptionsService
+              .COOKIE_NAME
+          }=invalid`,
         )
         .expect(401);
 
     expect(response.body).toMatchObject({
       code: 'INVALID_SESSION_COOKIE',
     });
+
+    expect(
+      sessionsServiceMock.getSession,
+    ).not.toHaveBeenCalled();
   });
+
+  it('rejects a roll request when the session cookie is missing', async () => {
+  const response =
+    await request(app.getHttpServer())
+      .post(
+        '/api/sessions/current/roll',
+      )
+      .expect(401);
+
+  expect(response.body).toMatchObject({
+    code:
+      'SESSION_COOKIE_MISSING',
+  });
+
+  expect(
+    sessionsServiceMock.rollSession,
+  ).not.toHaveBeenCalled();
+});
 });

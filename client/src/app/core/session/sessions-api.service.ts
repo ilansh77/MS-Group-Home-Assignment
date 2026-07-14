@@ -22,10 +22,10 @@ export class SessionsApiService {
   }
 
   getCurrentSession():
-    Observable<SessionState> {
-    return this.api.get<SessionState>(
-      '/sessions/current',
-    );
+    Observable<SessionState | null> {
+    return this.api.get<
+      SessionState | null
+    >('/sessions/current');
   }
 
   roll():
@@ -39,6 +39,13 @@ export class SessionsApiService {
     Observable<CashOutSessionResponse> {
     return this.api.post<CashOutSessionResponse>(
       '/sessions/current/cash-out',
+    );
+  }
+
+  clearCurrentSession():
+    Observable<void> {
+    return this.api.delete<void>(
+      '/sessions/current',
     );
   }
 }

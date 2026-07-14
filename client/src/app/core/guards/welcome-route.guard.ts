@@ -11,45 +11,25 @@ import {
   of,
 } from 'rxjs';
 import {
-  GameSessionStatus,
-} from '../session/session.models';
-import {
   getSessionRoute,
 } from '../session/session-route';
 import {
   SessionStoreService,
 } from '../session/session-store.service';
 
-export const EXPECTED_SESSION_STATUS =
-  'expectedSessionStatus';
-
-export const sessionStatusGuard:
-  CanActivateFn = (route) => {
+export const welcomeRouteGuard:
+  CanActivateFn = () => {
     const router =
       inject(Router);
 
     const sessionStore =
       inject(SessionStoreService);
 
-    const expectedStatus =
-      route.data[
-        EXPECTED_SESSION_STATUS
-      ] as GameSessionStatus;
-
     return sessionStore
       .loadCurrentSession(true)
       .pipe(
         map((session) => {
           if (!session) {
-            return router.parseUrl(
-              '/',
-            );
-          }
-
-          if (
-            session.status ===
-            expectedStatus
-          ) {
             return true;
           }
 
@@ -60,9 +40,7 @@ export const sessionStatusGuard:
           );
         }),
         catchError(() => {
-          return of(
-            router.parseUrl('/'),
-          );
+          return of(true);
         }),
       );
   };

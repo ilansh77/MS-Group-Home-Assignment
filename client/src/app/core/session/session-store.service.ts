@@ -1,4 +1,7 @@
 import {
+  HttpErrorResponse,
+} from '@angular/common/http';
+import {
   computed,
   inject,
   Injectable,
@@ -13,10 +16,13 @@ import {
   tap,
   throwError,
 } from 'rxjs';
-import { SessionsApiService } from './sessions-api.service';
+import {
+  SessionsApiService,
+} from './sessions-api.service';
 import {
   GameSessionStatus,
   type CashOutSessionResponse,
+  type CreateSessionResponse,
   type RollSessionResponse,
   type SessionState,
 } from './session.models';
@@ -29,34 +35,42 @@ export class SessionStoreService {
     inject(SessionsApiService);
 
   private readonly sessionState =
-    signal<SessionState | null>(null);
-
-  private readonly pendingState =
-    signal(false);
-
-  private readonly errorState =
-    signal<string | null>(null);
+    signal<SessionState | null>(
+      null,
+    );
 
   private readonly lastRollState =
     signal<RollSessionResponse | null>(
       null,
     );
 
+  private readonly errorState =
+    signal<string | null>(
+      null,
+    );
+
+  private readonly activeRequestCountState =
+    signal(0);
+
   readonly session =
     this.sessionState.asReadonly();
-
-  readonly pending =
-    this.pendingState.asReadonly();
-
-  readonly error =
-    this.errorState.asReadonly();
 
   readonly lastRoll =
     this.lastRollState.asReadonly();
 
+  readonly error =
+    this.errorState.asReadonly();
+
+  readonly pending = computed(
+    () =>
+      this.activeRequestCountState() >
+      0,
+  );
+
   readonly credits = computed(
     () =>
-      this.sessionState()?.credits ?? 0,
+      this.sessionState()?.credits ??
+      0,
   );
 
   readonly canRoll = computed(() => {
@@ -67,126 +81,277 @@ export class SessionStoreService {
       session?.status ===
         GameSessionStatus.Active &&
       session.credits > 0 &&
-      !this.pendingState()
+      !this.pending()
     );
   });
 
+  readonly canCashOut =
+    computed(() => {
+      return (
+        this.sessionState()
+          ?.status ===
+          GameSessionStatus.Active &&
+        !this.pending()
+      );
+    });
+
   startSession():
-    Observable<SessionState> {
-    return this.executeRequest(
-      () =>
-        this.sessionsApi.startSession(),
-      'Unable to start a game session.',
-      (session) => {
-        this.sessionState.set(session);
-        this.lastRollState.set(null);
-      },
-    );
+    Observable<CreateSessionResponse> {
+    return defer(() => {
+      this.beginRequest();
+
+      return this.sessionsApi
+        .startSession()
+        .pipe(
+          tap((session) => {
+            this.sessionState.set({
+              credits:
+                session.credits,
+              status:
+                session.status,
+            });
+
+            this.lastRollState.set(
+              null,
+            );
+          }),
+          catchError(
+            (error: unknown) => {
+              this.errorState.set(
+                'Unable to start a new game session.',
+              );
+
+              return throwError(
+                () => error,
+              );
+            },
+          ),
+          finalize(() => {
+            this.endRequest();
+          }),
+        );
+    });
   }
 
   loadCurrentSession(
     force = false,
-  ): Observable<SessionState> {
-    const cached =
+  ): Observable<
+    SessionState | null
+  > {
+    const currentSession =
       this.sessionState();
 
-    if (cached && !force) {
-      return of(cached);
+    if (
+      currentSession &&
+      !force
+    ) {
+      return of(currentSession);
     }
 
-    return this.executeRequest(
-      () =>
-        this.sessionsApi.getCurrentSession(),
-      'Unable to restore the game session.',
-      (session) => {
-        this.sessionState.set(session);
-      },
-      () => {
-        this.sessionState.set(null);
-      },
-    );
+    return defer(() => {
+      this.beginRequest();
+
+      return this.sessionsApi
+        .getCurrentSession()
+        .pipe(
+          tap((session) => {
+            this.sessionState.set(
+              session,
+            );
+          }),
+          catchError(
+            (error: unknown) => {
+              if (
+                this.isSessionUnavailable(
+                  error,
+                )
+              ) {
+                this.clearLocalState();
+
+                return of(null);
+              }
+
+              this.errorState.set(
+                'Unable to restore the current session.',
+              );
+
+              return throwError(
+                () => error,
+              );
+            },
+          ),
+          finalize(() => {
+            this.endRequest();
+          }),
+        );
+    });
   }
 
   roll():
     Observable<RollSessionResponse> {
-    return this.executeRequest(
-      () => this.sessionsApi.roll(),
-      'Unable to complete the roll.',
-      (result) => {
-        this.lastRollState.set(result);
+    return defer(() => {
+      this.beginRequest();
 
-        this.sessionState.update(
-          (current) =>
-            current
-              ? {
+      return this.sessionsApi
+        .roll()
+        .pipe(
+          tap((result) => {
+            this.lastRollState.set(
+              result,
+            );
+
+            this.sessionState.update(
+              (current) => {
+                if (!current) {
+                  return current;
+                }
+
+                return {
                   ...current,
                   credits:
                     result.credits,
-                }
-              : current,
+                };
+              },
+            );
+          }),
+          catchError(
+            (error: unknown) =>
+              this.handleMutationError(
+                error,
+                'Unable to complete the roll.',
+              ),
+          ),
+          finalize(() => {
+            this.endRequest();
+          }),
         );
-      },
-    );
+    });
   }
 
   cashOut():
     Observable<CashOutSessionResponse> {
-    return this.executeRequest(
-      () =>
-        this.sessionsApi.cashOut(),
-      'Unable to cash out the session.',
-      (result) => {
-        this.sessionState.update(
-          (current) =>
-            current
-              ? {
+    return defer(() => {
+      this.beginRequest();
+
+      return this.sessionsApi
+        .cashOut()
+        .pipe(
+          tap((result) => {
+            this.sessionState.update(
+              (current) => {
+                if (!current) {
+                  return current;
+                }
+
+                return {
                   ...current,
                   credits: 0,
                   status:
                     GameSessionStatus.CashedOut,
                   cashedOutCredits:
-                    result.cashedOutCredits,
-                }
-              : current,
+                    result
+                      .cashedOutCredits,
+                };
+              },
+            );
+          }),
+          catchError(
+            (error: unknown) =>
+              this.handleMutationError(
+                error,
+                'Unable to cash out the current session.',
+              ),
+          ),
+          finalize(() => {
+            this.endRequest();
+          }),
         );
-      },
+    });
+  }
+
+  clearSession():
+    Observable<void> {
+    return defer(() => {
+      this.beginRequest();
+
+      return this.sessionsApi
+        .clearCurrentSession()
+        .pipe(
+          tap(() => {
+            this.clearLocalState();
+          }),
+          catchError(
+            (error: unknown) => {
+              this.errorState.set(
+                'Unable to clear the current session.',
+              );
+
+              return throwError(
+                () => error,
+              );
+            },
+          ),
+          finalize(() => {
+            this.endRequest();
+          }),
+        );
+    });
+  }
+
+  private handleMutationError(
+    error: unknown,
+    message: string,
+  ): Observable<never> {
+    if (
+      this.isSessionUnavailable(
+        error,
+      )
+    ) {
+      this.clearLocalState();
+    } else {
+      this.errorState.set(
+        message,
+      );
+    }
+
+    return throwError(
+      () => error,
     );
   }
 
-  clear(): void {
+  private isSessionUnavailable(
+    error: unknown,
+  ): boolean {
+    return (
+      error instanceof
+        HttpErrorResponse &&
+      (
+        error.status === 401 ||
+        error.status === 404
+      )
+    );
+  }
+
+  private beginRequest(): void {
+    this.errorState.set(null);
+
+    this.activeRequestCountState
+      .update(
+        (count) => count + 1,
+      );
+  }
+
+  private endRequest(): void {
+    this.activeRequestCountState
+      .update(
+        (count) =>
+          Math.max(0, count - 1),
+      );
+  }
+
+  private clearLocalState(): void {
     this.sessionState.set(null);
     this.lastRollState.set(null);
     this.errorState.set(null);
-  }
-
-  private executeRequest<T>(
-    requestFactory:
-      () => Observable<T>,
-    errorMessage: string,
-    onSuccess: (value: T) => void,
-    onFailure?: () => void,
-  ): Observable<T> {
-    return defer(() => {
-      this.pendingState.set(true);
-      this.errorState.set(null);
-
-      return requestFactory().pipe(
-        tap(onSuccess),
-        catchError((error: unknown) => {
-          this.errorState.set(
-            errorMessage,
-          );
-
-          onFailure?.();
-
-          return throwError(
-            () => error,
-          );
-        }),
-        finalize(() => {
-          this.pendingState.set(false);
-        }),
-      );
-    });
   }
 }

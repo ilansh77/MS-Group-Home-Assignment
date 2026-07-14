@@ -8,7 +8,9 @@
     </strong>
   </p>
 
-  <section aria-label="Slot machine">
+  <section
+    aria-label="Slot machine"
+  >
     @if (
       sessionStore.lastRoll();
       as roll
@@ -33,18 +35,25 @@
     [disabled]="!sessionStore.canRoll()"
     (click)="roll()"
   >
-    Roll
+    @if (sessionStore.pending()) {
+      Rolling…
+    } @else {
+      Roll
+    }
   </button>
 
   <button
     type="button"
-    [disabled]="sessionStore.pending()"
+    [disabled]="!sessionStore.canCashOut()"
     (click)="cashOut()"
   >
     Cash out
   </button>
 
-  @if (sessionStore.error(); as error) {
+  @if (
+    sessionStore.error();
+    as error
+  ) {
     <p role="alert">
       {{ error }}
     </p>
